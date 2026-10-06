@@ -7,13 +7,18 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
 public class MailStorageService {
+    private static final String SENT_DIRECTORY = ".sent";
+    private static final DateTimeFormatter DISPLAY_TIME =
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
     private static final String WELCOME_MESSAGE =
             "Người gửi: MailFlow System\n"
             + "Tiêu đề: Chào mừng bạn đến với MailFlow\n\n"
@@ -36,67 +41,86 @@ public class MailStorageService {
 
     public boolean register(String username) {
         String email = normalizeEmail(username);
-        if (!isValidEmail(email)) {
-            return false;
-        }
+        if (!isValidEmail(email)) return false;
         Path userDirectory = storageRoot.resolve(email);
-
         try {
-            if (Files.exists(userDirectory)) {
-                return false;
-            }
-
+            if (Files.exists(userDirectory)) return false;
             Files.createDirectory(userDirectory);
-            Files.write(userDirectory.resolve("new_email.txt"),
-                    WELCOME_MESSAGE.getBytes(StandardCharsets.UTF_8));
+            Files.createDirectory(userDirectory.resolve(SENT_DIRECTORY));
+            Files.writeString(userDirectory.resolve("new_email.txt"),
+                    addTimestamp(WELCOME_MESSAGE, "Thời gian nhận", LocalDateTime.now()),
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             return true;
         } catch (IOException exception) {
             return false;
         }
     }
 
-    public List<String> getMailFiles(String username) {
+    public List<MailSummary> getMailSummaries(String username) {
+        return getMailSummaries(username, false);
+    }
+
+    public List<MailSummary> getSentSummaries(String username) {
+        return getMailSummaries(username, true);
+    }
+
+    private List<MailSummary> getMailSummaries(String username, boolean sent) {
         String email = normalizeEmail(username);
-        if (!isValidEmail(email)) {
-            return null;
-        }
+        if (!isValidEmail(email)) return null;
         Path userDirectory = storageRoot.resolve(email);
-
-        if (!Files.isDirectory(userDirectory)) {
-            return null;
+        if (!Files.isDirectory(userDirectory)) return null;
+        Path sourceDirectory = sent ? userDirectory.resolve(SENT_DIRECTORY) : userDirectory;
+        if (sent && !Files.exists(sourceDirectory)) {
+            try {
+                Files.createDirectory(sourceDirectory);
+            } catch (IOException exception) {
+                return new ArrayList<>();
+            }
         }
 
-        List<String> mailFiles = new ArrayList<>();
-        try (DirectoryStream<Path> files = Files.newDirectoryStream(userDirectory, "*.txt")) {
+        List<MailSummary> summaries = new ArrayList<>();
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(sourceDirectory, "*.txt")) {
             for (Path file : files) {
-                if (Files.isRegularFile(file)) {
-                    mailFiles.add(file.getFileName().toString());
-                }
+                if (!Files.isRegularFile(file)) continue;
+                String content = Files.readString(file, StandardCharsets.UTF_8);
+                String subject = extractHeader(content, "Tiêu đề:");
+                if (subject.isEmpty()) subject = "(Không có tiêu đề)";
+                summaries.add(new MailSummary(file.getFileName().toString(), subject,
+                        Files.getLastModifiedTime(file).toMillis()));
             }
         } catch (IOException exception) {
             return null;
         }
-
-        Collections.sort(mailFiles);
-        return mailFiles;
+        summaries.sort(Comparator.comparingLong(MailSummary::getTimestamp).reversed());
+        return summaries;
     }
 
-    public boolean saveMail(String toUser, String content) {
-        String email = normalizeEmail(toUser);
-        if (!isValidEmail(email)) {
+    public boolean saveMail(String fromUser, String toUser, String content) {
+        String sender = normalizeEmail(fromUser);
+        String recipient = normalizeEmail(toUser);
+        if (!isValidEmail(sender) || !isValidEmail(recipient)) return false;
+        Path senderDirectory = storageRoot.resolve(sender);
+        Path recipientDirectory = storageRoot.resolve(recipient);
+        if (!Files.isDirectory(senderDirectory) || !Files.isDirectory(recipientDirectory)) {
             return false;
         }
-        Path userDirectory = storageRoot.resolve(email);
 
-        if (!Files.isDirectory(userDirectory)) {
-            return false;
-        }
-
-        String fileName = "mail_" + UUID.randomUUID().toString() + ".txt";
-        Path mailFile = userDirectory.resolve(fileName);
+        LocalDateTime now = LocalDateTime.now();
+        String id = UUID.randomUUID().toString();
+        Path inboxFile = recipientDirectory.resolve("mail_" + id + ".txt");
+        Path sentDirectory = senderDirectory.resolve(SENT_DIRECTORY);
+        Path sentFile = sentDirectory.resolve("sent_" + id + ".txt");
         try {
-            Files.write(mailFile, content.getBytes(StandardCharsets.UTF_8),
-                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            Files.createDirectories(sentDirectory);
+            Files.writeString(inboxFile, addTimestamp(content, "Thời gian nhận", now),
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            try {
+                Files.writeString(sentFile, addTimestamp(content, "Thời gian gửi", now),
+                        StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            } catch (IOException exception) {
+                Files.deleteIfExists(inboxFile);
+                throw exception;
+            }
             return true;
         } catch (IOException exception) {
             return false;
@@ -104,21 +128,41 @@ public class MailStorageService {
     }
 
     public String readMail(String username, String fileName) {
-        String email = normalizeEmail(username);
-        if (!isValidEmail(email)) {
-            return null;
-        }
-        Path userDirectory = storageRoot.resolve(email).normalize();
-        Path mailFile = userDirectory.resolve(fileName).normalize();
-        if (!mailFile.startsWith(userDirectory) || !Files.isRegularFile(mailFile)) {
-            return null;
-        }
+        return readMail(username, fileName, false);
+    }
 
+    public String readSentMail(String username, String fileName) {
+        return readMail(username, fileName, true);
+    }
+
+    private String readMail(String username, String fileName, boolean sent) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email)) return null;
+        Path userDirectory = storageRoot.resolve(email).normalize();
+        Path sourceDirectory = sent
+                ? userDirectory.resolve(SENT_DIRECTORY).normalize() : userDirectory;
+        Path mailFile = sourceDirectory.resolve(fileName).normalize();
+        if (!mailFile.startsWith(sourceDirectory) || !Files.isRegularFile(mailFile)) return null;
         try {
             return Files.readString(mailFile, StandardCharsets.UTF_8);
         } catch (IOException exception) {
             return null;
         }
+    }
+
+    private String addTimestamp(String content, String label, LocalDateTime time) {
+        String timestampLine = label + ": " + DISPLAY_TIME.format(time);
+        int bodySeparator = content.indexOf("\n\n");
+        if (bodySeparator < 0) return content + "\n" + timestampLine;
+        return content.substring(0, bodySeparator) + "\n" + timestampLine
+                + content.substring(bodySeparator);
+    }
+
+    private String extractHeader(String content, String header) {
+        for (String line : content.split("\\R")) {
+            if (line.startsWith(header)) return line.substring(header.length()).trim();
+        }
+        return "";
     }
 
     private String normalizeEmail(String username) {
@@ -127,5 +171,21 @@ public class MailStorageService {
 
     private boolean isValidEmail(String email) {
         return email.matches("[a-z0-9._%+-]+@gmail\\.com");
+    }
+
+    public static final class MailSummary {
+        private final String fileName;
+        private final String subject;
+        private final long timestamp;
+
+        public MailSummary(String fileName, String subject, long timestamp) {
+            this.fileName = fileName;
+            this.subject = subject;
+            this.timestamp = timestamp;
+        }
+
+        public String getFileName() { return fileName; }
+        public String getSubject() { return subject; }
+        public long getTimestamp() { return timestamp; }
     }
 }

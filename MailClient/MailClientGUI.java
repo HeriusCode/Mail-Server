@@ -18,9 +18,10 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Base64;
+import java.util.Date;
 import java.util.Locale;
+import java.text.SimpleDateFormat;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -59,7 +60,7 @@ public class MailClientGUI extends JFrame {
     private static final String GMAIL_PATTERN = "[a-z0-9._%+-]+@gmail\\.com";
     private static final String PAGE_INBOX = "INBOX";
     private static final String PAGE_COMPOSE = "COMPOSE";
-    private static final String PAGE_CONNECTION = "CONNECTION";
+    private static final String PAGE_SENT = "SENT";
 
     private final JTextField txtServerHost = new JTextField(SERVER_HOST, 11);
     private final JTextField txtServerPort = new JTextField(String.valueOf(SERVER_PORT), 5);
@@ -68,19 +69,25 @@ public class MailClientGUI extends JFrame {
     private final JTextField txtSubject = new JTextField(28);
     private final JTextArea txtContent = new JTextArea(5, 30);
     private final JTextArea txtMailContent = new JTextArea();
+    private final JTextArea txtSentContent = new JTextArea();
     private final JLabel lblStatus = new JLabel("Chưa kết nối đến máy chủ UDP");
     private final JLabel lblConnection = new JLabel("OFFLINE");
     private final JLabel lblMailboxCount = new JLabel("0 thư");
-    private final DefaultListModel<String> mailListModel = new DefaultListModel<>();
-    private final JList<String> listFiles = new JList<>(mailListModel);
+    private final JLabel lblSentCount = new JLabel("0 thư");
+    private final DefaultListModel<MailItem> mailListModel = new DefaultListModel<>();
+    private final JList<MailItem> listFiles = new JList<>(mailListModel);
+    private final DefaultListModel<MailItem> sentListModel = new DefaultListModel<>();
+    private final JList<MailItem> listSent = new JList<>(sentListModel);
     private final JButton btnConnect = createButton("Kết nối", PRIMARY, Color.WHITE);
     private final JButton btnRegister = createButton("Tạo tài khoản", new Color(71, 85, 105), Color.WHITE);
     private final JButton btnLogin = createButton("Mở hộp thư", PRIMARY, Color.WHITE);
     private final JButton btnRefresh = createButton("Làm mới", new Color(241, 245, 249), TEXT);
+    private final JButton btnRefreshSent = createButton("Làm mới lịch sử",
+            new Color(241, 245, 249), TEXT);
     private final JButton btnSend = createButton("Gửi thư", PRIMARY, Color.WHITE);
     private final JButton btnInboxNav = createNavButton("HỘP THƯ ĐẾN", true);
     private final JButton btnComposeNav = createNavButton("SOẠN THƯ MỚI", false);
-    private final JButton btnConnectionNav = createNavButton("KẾT NỐI UDP", false);
+    private final JButton btnSentNav = createNavButton("LỊCH SỬ GỬI THƯ", false);
     private final CardLayout pageLayout = new CardLayout();
     private final JPanel pageContainer = new JPanel(pageLayout);
     private final ExecutorService networkWorker = Executors.newSingleThreadExecutor(runnable -> {
@@ -149,7 +156,7 @@ public class MailClientGUI extends JFrame {
         navigation.add(menuTitle);
         navigation.add(btnInboxNav);
         navigation.add(btnComposeNav);
-        navigation.add(btnConnectionNav);
+        navigation.add(btnSentNav);
         sidebar.add(navigation, BorderLayout.CENTER);
 
         RoundedPanel networkCard = new RoundedPanel(14, new Color(30, 41, 59));
@@ -218,7 +225,7 @@ public class MailClientGUI extends JFrame {
         split.setDividerLocation(300);
         pageContainer.add(split, PAGE_INBOX);
         pageContainer.add(createComposer(), PAGE_COMPOSE);
-        pageContainer.add(createConnectionPage(), PAGE_CONNECTION);
+        pageContainer.add(createSentHistoryPage(), PAGE_SENT);
         workspace.add(pageContainer, BorderLayout.CENTER);
         return workspace;
     }
@@ -353,25 +360,64 @@ public class MailClientGUI extends JFrame {
         return composer;
     }
 
-    private JPanel createConnectionPage() {
-        RoundedPanel panel = new RoundedPanel(18, SURFACE);
-        panel.setLayout(new BorderLayout(0, 14));
-        panel.setBorder(new EmptyBorder(34, 38, 34, 38));
-        JLabel title = new JLabel("Kết nối UDP MailServer");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+    private JPanel createSentHistoryPage() {
+        JPanel page = new JPanel(new BorderLayout());
+        page.setOpaque(false);
+
+        RoundedPanel history = new RoundedPanel(18, SURFACE);
+        history.setLayout(new BorderLayout(0, 12));
+        history.setBorder(new EmptyBorder(17, 16, 16, 16));
+        JPanel heading = new JPanel(new BorderLayout());
+        heading.setOpaque(false);
+        JLabel title = new JLabel("Thư đã gửi");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 17));
         title.setForeground(TEXT);
-        panel.add(title, BorderLayout.NORTH);
-        JLabel guide = new JLabel("<html><div style='width:520px'>"
-                + "Nhập địa chỉ IP và port của máy chủ ở góc trên bên phải, sau đó nhấn "
-                + "<b>Kết nối</b>. Khi hai máy cùng mạng LAN, hãy dùng IPv4 của máy server "
-                + "thay vì localhost.<br><br><b>Trạng thái hiện tại:</b> ứng dụng sử dụng "
-                + "UDP với timeout 2 giây, retry tối đa 3 lần và request ID chống gửi trùng."
-                + "</div></html>");
-        guide.setForeground(MUTED);
-        guide.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        guide.setVerticalAlignment(SwingConstants.TOP);
-        panel.add(guide, BorderLayout.CENTER);
-        return panel;
+        lblSentCount.setForeground(MUTED);
+        lblSentCount.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        heading.add(title, BorderLayout.WEST);
+        heading.add(lblSentCount, BorderLayout.EAST);
+        history.add(heading, BorderLayout.NORTH);
+
+        listSent.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        listSent.setFixedCellHeight(58);
+        listSent.setBackground(SURFACE);
+        listSent.setSelectionBackground(PRIMARY_LIGHT);
+        listSent.setSelectionForeground(TEXT);
+        listSent.setBorder(new EmptyBorder(2, 0, 2, 0));
+        listSent.setCellRenderer(new MailCellRenderer());
+        JScrollPane sentScroll = new JScrollPane(listSent);
+        sentScroll.setBorder(BorderFactory.createMatteBorder(1, 0, 1, 0, BORDER));
+        sentScroll.getViewport().setBackground(SURFACE);
+        history.add(sentScroll, BorderLayout.CENTER);
+        history.add(btnRefreshSent, BorderLayout.SOUTH);
+
+        RoundedPanel reader = new RoundedPanel(18, SURFACE);
+        reader.setLayout(new BorderLayout(0, 10));
+        reader.setBorder(new EmptyBorder(17, 18, 16, 18));
+        JLabel readerTitle = new JLabel("Nội dung thư đã gửi");
+        readerTitle.setForeground(TEXT);
+        readerTitle.setFont(new Font("Segoe UI", Font.BOLD, 17));
+        reader.add(readerTitle, BorderLayout.NORTH);
+        txtSentContent.setEditable(false);
+        txtSentContent.setLineWrap(true);
+        txtSentContent.setWrapStyleWord(true);
+        txtSentContent.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        txtSentContent.setForeground(TEXT);
+        txtSentContent.setBackground(new Color(250, 251, 253));
+        txtSentContent.setBorder(new EmptyBorder(14, 14, 14, 14));
+        txtSentContent.setText("Chọn một thư đã gửi để xem lại nội dung.");
+        JScrollPane contentScroll = new JScrollPane(txtSentContent);
+        contentScroll.setBorder(BorderFactory.createLineBorder(BORDER));
+        reader.add(contentScroll, BorderLayout.CENTER);
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, history, reader);
+        split.setBorder(null);
+        split.setOpaque(false);
+        split.setDividerSize(12);
+        split.setResizeWeight(0.36);
+        split.setDividerLocation(340);
+        page.add(split, BorderLayout.CENTER);
+        return page;
     }
 
     private JPanel createStatusBar() {
@@ -392,12 +438,19 @@ public class MailClientGUI extends JFrame {
         btnRegister.addActionListener(event -> register());
         btnLogin.addActionListener(event -> login());
         btnRefresh.addActionListener(event -> login());
+        btnRefreshSent.addActionListener(event -> loadSentHistory());
         btnSend.addActionListener(event -> sendMail());
         btnInboxNav.addActionListener(event -> showPage(PAGE_INBOX, btnInboxNav));
         btnComposeNav.addActionListener(event -> showPage(PAGE_COMPOSE, btnComposeNav));
-        btnConnectionNav.addActionListener(event -> showPage(PAGE_CONNECTION, btnConnectionNav));
+        btnSentNav.addActionListener(event -> {
+            showPage(PAGE_SENT, btnSentNav);
+            loadSentHistory();
+        });
         listFiles.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) showSelectedMail(listFiles.getSelectedValue());
+        });
+        listSent.addListSelectionListener(event -> {
+            if (!event.getValueIsAdjusting()) showSelectedSentMail(listSent.getSelectedValue());
         });
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent event) {
@@ -486,15 +539,49 @@ public class MailClientGUI extends JFrame {
     }
 
     private void updateMailList(String response) {
-        mailListModel.clear();
-        String files = response.substring("LOGIN_SUCCESS|".length());
-        if (!files.isEmpty()) {
-            Arrays.stream(files.split(",")).filter(name -> !name.isEmpty())
-                    .forEach(mailListModel::addElement);
-        }
+        parseMailList(response, "LOGIN_SUCCESS|", mailListModel);
         lblMailboxCount.setText(mailListModel.size() + " thư");
         if (mailListModel.isEmpty()) {
             txtMailContent.setText("Hộp thư chưa có nội dung.");
+        }
+    }
+
+    private void loadSentHistory() {
+        String username = normalizeEmail(txtUsername.getText());
+        if (!validUsername(username)) return;
+        requestAsync("SENT " + username, response -> {
+            if (!response.startsWith("SENT_SUCCESS|")) {
+                setStatus("Không thể tải lịch sử gửi thư", true);
+                return;
+            }
+            parseMailList(response, "SENT_SUCCESS|", sentListModel);
+            lblSentCount.setText(sentListModel.size() + " thư");
+            txtSentContent.setText(sentListModel.isEmpty()
+                    ? "Bạn chưa gửi thư nào." : "Chọn một thư đã gửi để xem lại nội dung.");
+            setStatus("Đã tải " + sentListModel.size() + " thư đã gửi", false);
+        });
+    }
+
+    private void parseMailList(String response, String prefix,
+            DefaultListModel<MailItem> targetModel) {
+        targetModel.clear();
+        String entries = response.substring(prefix.length());
+        if (entries.isEmpty()) return;
+        for (String entry : entries.split(",")) {
+            if (entry.isEmpty()) continue;
+            String[] fields = entry.split(";", 3);
+            if (fields.length == 3) {
+                try {
+                    String subject = new String(Base64.getDecoder().decode(fields[1]),
+                            StandardCharsets.UTF_8);
+                    long timestamp = Long.parseLong(fields[2]);
+                    targetModel.addElement(new MailItem(fields[0], subject, timestamp));
+                    continue;
+                } catch (IllegalArgumentException exception) {
+                    // Đọc theo định dạng cũ bên dưới nếu metadata bị lỗi.
+                }
+            }
+            targetModel.addElement(new MailItem(entry, "(Không có tiêu đề)", 0));
         }
     }
 
@@ -525,7 +612,7 @@ public class MailClientGUI extends JFrame {
         requestAsync("SEND " + recipient + " " + encoded, response -> {
             boolean error = !"SEND_SUCCESS".equals(response);
             if (response.startsWith("SEND_FAILED")) {
-                setStatus("Người nhận chưa đăng ký trên MailServer", true);
+                setStatus("Tài khoản người gửi hoặc người nhận chưa đăng ký trên MailServer", true);
             } else {
                 setStatus(error ? response : "Đã gửi thư tới " + recipient, error);
             }
@@ -536,11 +623,11 @@ public class MailClientGUI extends JFrame {
         });
     }
 
-    private void showSelectedMail(String fileName) {
-        if (fileName == null) return;
+    private void showSelectedMail(MailItem mail) {
+        if (mail == null) return;
         String username = normalizeEmail(txtUsername.getText());
         if (!validUsername(username)) return;
-        requestAsync("READ " + username + " " + fileName, response -> {
+        requestAsync("READ " + username + " " + mail.fileName, response -> {
             if (!response.startsWith("MAIL_CONTENT|")) {
                 setStatus("Không thể đọc thư: " + response, true);
                 return;
@@ -549,9 +636,29 @@ public class MailClientGUI extends JFrame {
                 txtMailContent.setText(new String(Base64.getDecoder().decode(
                         response.substring("MAIL_CONTENT|".length())), StandardCharsets.UTF_8));
                 txtMailContent.setCaretPosition(0);
-                setStatus("Đang xem " + fileName, false);
+                setStatus("Đang xem: " + mail.subject, false);
             } catch (IllegalArgumentException exception) {
                 setStatus("Nội dung thư không hợp lệ", true);
+            }
+        });
+    }
+
+    private void showSelectedSentMail(MailItem mail) {
+        if (mail == null) return;
+        String username = normalizeEmail(txtUsername.getText());
+        if (!validUsername(username)) return;
+        requestAsync("READ_SENT " + username + " " + mail.fileName, response -> {
+            if (!response.startsWith("MAIL_CONTENT|")) {
+                setStatus("Không thể đọc thư đã gửi: " + response, true);
+                return;
+            }
+            try {
+                txtSentContent.setText(new String(Base64.getDecoder().decode(
+                        response.substring("MAIL_CONTENT|".length())), StandardCharsets.UTF_8));
+                txtSentContent.setCaretPosition(0);
+                setStatus("Đang xem thư đã gửi: " + mail.subject, false);
+            } catch (IllegalArgumentException exception) {
+                setStatus("Nội dung thư đã gửi không hợp lệ", true);
             }
         });
     }
@@ -585,6 +692,7 @@ public class MailClientGUI extends JFrame {
         btnRegister.setEnabled(!busy);
         btnLogin.setEnabled(!busy);
         btnRefresh.setEnabled(!busy);
+        btnRefreshSent.setEnabled(!busy);
         btnSend.setEnabled(!busy);
         setStatus(message, false);
     }
@@ -617,7 +725,7 @@ public class MailClientGUI extends JFrame {
         pageLayout.show(pageContainer, page);
         styleNavButton(btnInboxNav, selectedButton == btnInboxNav);
         styleNavButton(btnComposeNav, selectedButton == btnComposeNav);
-        styleNavButton(btnConnectionNav, selectedButton == btnConnectionNav);
+        styleNavButton(btnSentNav, selectedButton == btnSentNav);
     }
 
     private static JButton createNavButton(String text, boolean selected) {
@@ -686,14 +794,36 @@ public class MailClientGUI extends JFrame {
                 int index, boolean selected, boolean focus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(
                     list, value, index, selected, focus);
-            label.setText("<html><b>Thư số " + (index + 1)
-                    + "</b><br><font color='#64748B'>" + value + "</font></html>");
+            MailItem mail = (MailItem) value;
+            String time = mail.timestamp > 0
+                    ? new SimpleDateFormat("dd/MM/yyyy HH:mm").format(new Date(mail.timestamp))
+                    : "Chưa có thời gian";
+            label.setText("<html><b>" + escapeHtml(mail.subject)
+                    + "</b><br><font color='#64748B'>" + time + "</font></html>");
             label.setFont(new Font("Segoe UI", Font.PLAIN, 12));
             label.setBorder(new EmptyBorder(5, 10, 5, 8));
             label.setBackground(selected ? PRIMARY_LIGHT : SURFACE);
             label.setForeground(TEXT);
             return label;
         }
+
+        private String escapeHtml(String text) {
+            return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        }
+    }
+
+    private static final class MailItem {
+        private final String fileName;
+        private final String subject;
+        private final long timestamp;
+
+        private MailItem(String fileName, String subject, long timestamp) {
+            this.fileName = fileName;
+            this.subject = subject;
+            this.timestamp = timestamp;
+        }
+
+        @Override public String toString() { return subject; }
     }
 
     public static void main(String[] args) {
