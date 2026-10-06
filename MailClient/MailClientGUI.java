@@ -1,6 +1,7 @@
 package MailClient;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -19,6 +20,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -54,11 +56,16 @@ public class MailClientGUI extends JFrame {
     private static final Color BORDER = new Color(226, 232, 240);
     private static final Color SUCCESS = new Color(5, 150, 105);
     private static final Color ERROR = new Color(220, 38, 38);
+    private static final String GMAIL_PATTERN = "[a-z0-9._%+-]+@gmail\\.com";
+    private static final String PAGE_INBOX = "INBOX";
+    private static final String PAGE_COMPOSE = "COMPOSE";
+    private static final String PAGE_CONNECTION = "CONNECTION";
 
     private final JTextField txtServerHost = new JTextField(SERVER_HOST, 11);
     private final JTextField txtServerPort = new JTextField(String.valueOf(SERVER_PORT), 5);
-    private final JTextField txtUsername = new JTextField(16);
-    private final JTextField txtToUser = new JTextField(16);
+    private final JTextField txtUsername = new JTextField(22);
+    private final JTextField txtToUser = new JTextField(28);
+    private final JTextField txtSubject = new JTextField(28);
     private final JTextArea txtContent = new JTextArea(5, 30);
     private final JTextArea txtMailContent = new JTextArea();
     private final JLabel lblStatus = new JLabel("Chưa kết nối đến máy chủ UDP");
@@ -67,10 +74,15 @@ public class MailClientGUI extends JFrame {
     private final DefaultListModel<String> mailListModel = new DefaultListModel<>();
     private final JList<String> listFiles = new JList<>(mailListModel);
     private final JButton btnConnect = createButton("Kết nối", PRIMARY, Color.WHITE);
-    private final JButton btnRegister = createButton("Đăng ký", new Color(71, 85, 105), Color.WHITE);
+    private final JButton btnRegister = createButton("Tạo tài khoản", new Color(71, 85, 105), Color.WHITE);
     private final JButton btnLogin = createButton("Mở hộp thư", PRIMARY, Color.WHITE);
     private final JButton btnRefresh = createButton("Làm mới", new Color(241, 245, 249), TEXT);
     private final JButton btnSend = createButton("Gửi thư", PRIMARY, Color.WHITE);
+    private final JButton btnInboxNav = createNavButton("HỘP THƯ ĐẾN", true);
+    private final JButton btnComposeNav = createNavButton("SOẠN THƯ MỚI", false);
+    private final JButton btnConnectionNav = createNavButton("KẾT NỐI UDP", false);
+    private final CardLayout pageLayout = new CardLayout();
+    private final JPanel pageContainer = new JPanel(pageLayout);
     private final ExecutorService networkWorker = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "udp-mail-client-worker");
         thread.setDaemon(true);
@@ -135,9 +147,9 @@ public class MailClientGUI extends JFrame {
         menuTitle.setBorder(new EmptyBorder(42, 10, 12, 0));
         menuTitle.setAlignmentX(Component.LEFT_ALIGNMENT);
         navigation.add(menuTitle);
-        navigation.add(createNavItem("▣   Hộp thư đến", true));
-        navigation.add(createNavItem("✎   Soạn thư", false));
-        navigation.add(createNavItem("◎   Kết nối UDP", false));
+        navigation.add(btnInboxNav);
+        navigation.add(btnComposeNav);
+        navigation.add(btnConnectionNav);
         sidebar.add(navigation, BorderLayout.CENTER);
 
         RoundedPanel networkCard = new RoundedPanel(14, new Color(30, 41, 59));
@@ -196,14 +208,18 @@ public class MailClientGUI extends JFrame {
         workspace.setOpaque(false);
         workspace.add(createAccountBar(), BorderLayout.NORTH);
 
+        pageContainer.setOpaque(false);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                createInboxCard(), createReaderAndComposer());
+                createInboxCard(), createReaderCard());
         split.setBorder(null);
         split.setOpaque(false);
         split.setDividerSize(12);
         split.setResizeWeight(0.32);
         split.setDividerLocation(300);
-        workspace.add(split, BorderLayout.CENTER);
+        pageContainer.add(split, PAGE_INBOX);
+        pageContainer.add(createComposer(), PAGE_COMPOSE);
+        pageContainer.add(createConnectionPage(), PAGE_CONNECTION);
+        workspace.add(pageContainer, BorderLayout.CENTER);
         return workspace;
     }
 
@@ -220,8 +236,9 @@ public class MailClientGUI extends JFrame {
         avatar.setForeground(PRIMARY);
         avatar.setFont(new Font("Segoe UI", Font.BOLD, 17));
         form.add(avatar);
-        form.add(createSmallLabel("Tài khoản"));
+        form.add(createSmallLabel("Tài khoản Gmail"));
         styleField(txtUsername);
+        txtUsername.setToolTipText("Ví dụ: tenban@gmail.com");
         form.add(txtUsername);
         form.add(btnRegister);
         form.add(btnLogin);
@@ -265,10 +282,7 @@ public class MailClientGUI extends JFrame {
         return inbox;
     }
 
-    private JPanel createReaderAndComposer() {
-        JPanel right = new JPanel(new BorderLayout(0, 14));
-        right.setOpaque(false);
-
+    private JPanel createReaderCard() {
         RoundedPanel reader = new RoundedPanel(18, SURFACE);
         reader.setLayout(new BorderLayout(0, 10));
         reader.setBorder(new EmptyBorder(17, 18, 16, 18));
@@ -287,29 +301,40 @@ public class MailClientGUI extends JFrame {
         JScrollPane mailScroll = new JScrollPane(txtMailContent);
         mailScroll.setBorder(BorderFactory.createLineBorder(BORDER));
         reader.add(mailScroll, BorderLayout.CENTER);
-        right.add(reader, BorderLayout.CENTER);
-        right.add(createComposer(), BorderLayout.SOUTH);
-        return right;
+        return reader;
     }
 
     private JPanel createComposer() {
         RoundedPanel composer = new RoundedPanel(18, SURFACE);
         composer.setLayout(new GridBagLayout());
-        composer.setBorder(new EmptyBorder(15, 18, 15, 18));
+        composer.setBorder(new EmptyBorder(25, 28, 25, 28));
         GridBagConstraints c = new GridBagConstraints();
-        c.insets = new Insets(3, 0, 7, 10);
+        c.insets = new Insets(5, 0, 10, 14);
         c.anchor = GridBagConstraints.WEST;
         c.gridx = 0; c.gridy = 0;
         JLabel title = new JLabel("Soạn thư mới");
-        title.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        title.setFont(new Font("Segoe UI", Font.BOLD, 22));
         title.setForeground(TEXT);
         composer.add(title, c);
+        c.gridx = 1; c.weightx = 1; c.fill = GridBagConstraints.HORIZONTAL;
+        JLabel hint = new JLabel("Điền đầy đủ thông tin trước khi gửi");
+        hint.setForeground(MUTED);
+        hint.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        composer.add(hint, c);
+        c.gridx = 0; c.weightx = 0; c.fill = GridBagConstraints.NONE;
         c.gridy = 1;
-        composer.add(createSmallLabel("Người nhận"), c);
+        composer.add(createSmallLabel("Người nhận Gmail"), c);
         c.gridx = 1; c.weightx = 1; c.fill = GridBagConstraints.HORIZONTAL;
         styleField(txtToUser);
+        txtToUser.setToolTipText("Ví dụ: nguoinhan@gmail.com");
         composer.add(txtToUser, c);
         c.gridx = 0; c.gridy = 2; c.weightx = 0; c.fill = GridBagConstraints.NONE;
+        composer.add(createSmallLabel("Tiêu đề thư"), c);
+        c.gridx = 1; c.weightx = 1; c.fill = GridBagConstraints.HORIZONTAL;
+        styleField(txtSubject);
+        txtSubject.setToolTipText("Nhập tiêu đề thư");
+        composer.add(txtSubject, c);
+        c.gridx = 0; c.gridy = 3; c.weightx = 0; c.fill = GridBagConstraints.NONE;
         composer.add(createSmallLabel("Nội dung"), c);
         c.gridx = 1; c.weightx = 1; c.weighty = 1; c.fill = GridBagConstraints.BOTH;
         txtContent.setLineWrap(true);
@@ -319,13 +344,34 @@ public class MailClientGUI extends JFrame {
         txtContent.setBackground(new Color(250, 251, 253));
         txtContent.setBorder(new EmptyBorder(8, 10, 8, 10));
         JScrollPane contentScroll = new JScrollPane(txtContent);
-        contentScroll.setPreferredSize(new Dimension(300, 84));
+        contentScroll.setPreferredSize(new Dimension(500, 260));
         contentScroll.setBorder(BorderFactory.createLineBorder(BORDER));
         composer.add(contentScroll, c);
         c.gridx = 2; c.weightx = 0; c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.SOUTHEAST;
         composer.add(btnSend, c);
         return composer;
+    }
+
+    private JPanel createConnectionPage() {
+        RoundedPanel panel = new RoundedPanel(18, SURFACE);
+        panel.setLayout(new BorderLayout(0, 14));
+        panel.setBorder(new EmptyBorder(34, 38, 34, 38));
+        JLabel title = new JLabel("Kết nối UDP MailServer");
+        title.setFont(new Font("Segoe UI", Font.BOLD, 22));
+        title.setForeground(TEXT);
+        panel.add(title, BorderLayout.NORTH);
+        JLabel guide = new JLabel("<html><div style='width:520px'>"
+                + "Nhập địa chỉ IP và port của máy chủ ở góc trên bên phải, sau đó nhấn "
+                + "<b>Kết nối</b>. Khi hai máy cùng mạng LAN, hãy dùng IPv4 của máy server "
+                + "thay vì localhost.<br><br><b>Trạng thái hiện tại:</b> ứng dụng sử dụng "
+                + "UDP với timeout 2 giây, retry tối đa 3 lần và request ID chống gửi trùng."
+                + "</div></html>");
+        guide.setForeground(MUTED);
+        guide.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        guide.setVerticalAlignment(SwingConstants.TOP);
+        panel.add(guide, BorderLayout.CENTER);
+        return panel;
     }
 
     private JPanel createStatusBar() {
@@ -347,6 +393,9 @@ public class MailClientGUI extends JFrame {
         btnLogin.addActionListener(event -> login());
         btnRefresh.addActionListener(event -> login());
         btnSend.addActionListener(event -> sendMail());
+        btnInboxNav.addActionListener(event -> showPage(PAGE_INBOX, btnInboxNav));
+        btnComposeNav.addActionListener(event -> showPage(PAGE_COMPOSE, btnComposeNav));
+        btnConnectionNav.addActionListener(event -> showPage(PAGE_CONNECTION, btnConnectionNav));
         listFiles.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) showSelectedMail(listFiles.getSelectedValue());
         });
@@ -398,31 +447,42 @@ public class MailClientGUI extends JFrame {
     }
 
     private void register() {
-        String username = txtUsername.getText().trim();
+        String username = normalizeEmail(txtUsername.getText());
         if (!validUsername(username)) return;
+        txtUsername.setText(username);
         requestAsync("REGISTER " + username, response -> {
             boolean error = !"REGISTER_SUCCESS".equals(response);
-            setStatus(error ? response : "Đăng ký tài khoản thành công", error);
+            if (response.startsWith("REGISTER_FAILED")) {
+                setStatus("Tài khoản Gmail đã tồn tại. Hãy chọn Mở hộp thư.", true);
+            } else {
+                setStatus(error ? response : "Tạo tài khoản Gmail thành công", error);
+            }
         });
     }
 
     private void login() {
-        String username = txtUsername.getText().trim();
+        String username = normalizeEmail(txtUsername.getText());
         if (!validUsername(username)) return;
+        txtUsername.setText(username);
         requestAsync("LOGIN " + username, response -> {
             if (!response.startsWith("LOGIN_SUCCESS|")) {
-                setStatus(response, true);
+                setStatus("Tài khoản Gmail chưa được đăng ký trên MailServer", true);
                 return;
             }
             updateMailList(response);
             setStatus("Đã tải " + mailListModel.size() + " thư của " + username, false);
+            showPage(PAGE_INBOX, btnInboxNav);
         });
     }
 
     private boolean validUsername(String username) {
-        if (username.matches("[a-zA-Z0-9_]+")) return true;
-        setStatus("Tài khoản chỉ gồm chữ, số và dấu gạch dưới", true);
+        if (username.matches(GMAIL_PATTERN)) return true;
+        setStatus("Vui lòng nhập địa chỉ Gmail hợp lệ, ví dụ: tenban@gmail.com", true);
         return false;
+    }
+
+    private String normalizeEmail(String value) {
+        return value.trim().toLowerCase(Locale.ROOT);
     }
 
     private void updateMailList(String response) {
@@ -439,24 +499,46 @@ public class MailClientGUI extends JFrame {
     }
 
     private void sendMail() {
-        String recipient = txtToUser.getText().trim();
+        String sender = normalizeEmail(txtUsername.getText());
+        String recipient = normalizeEmail(txtToUser.getText());
+        String subject = txtSubject.getText().trim();
         String content = txtContent.getText();
-        if (!recipient.matches("[a-zA-Z0-9_]+") || content.trim().isEmpty()) {
-            setStatus("Vui lòng nhập người nhận hợp lệ và nội dung thư", true);
+        if (!validUsername(sender)) {
+            setStatus("Hãy nhập tài khoản Gmail của bạn ở thanh phía trên", true);
             return;
         }
+        if (!recipient.matches(GMAIL_PATTERN)) {
+            setStatus("Người nhận phải là địa chỉ Gmail hợp lệ", true);
+            return;
+        }
+        if (subject.isEmpty() || content.trim().isEmpty()) {
+            setStatus("Vui lòng nhập đầy đủ tiêu đề và nội dung thư", true);
+            return;
+        }
+        txtUsername.setText(sender);
+        txtToUser.setText(recipient);
+        String formattedMail = "Người gửi: " + sender + "\n"
+                + "Người nhận: " + recipient + "\n"
+                + "Tiêu đề: " + subject + "\n\n" + content;
         String encoded = Base64.getEncoder().encodeToString(
-                content.getBytes(StandardCharsets.UTF_8));
+                formattedMail.getBytes(StandardCharsets.UTF_8));
         requestAsync("SEND " + recipient + " " + encoded, response -> {
             boolean error = !"SEND_SUCCESS".equals(response);
-            setStatus(error ? response : "Đã gửi thư tới " + recipient, error);
-            if (!error) txtContent.setText("");
+            if (response.startsWith("SEND_FAILED")) {
+                setStatus("Người nhận chưa đăng ký trên MailServer", true);
+            } else {
+                setStatus(error ? response : "Đã gửi thư tới " + recipient, error);
+            }
+            if (!error) {
+                txtSubject.setText("");
+                txtContent.setText("");
+            }
         });
     }
 
     private void showSelectedMail(String fileName) {
         if (fileName == null) return;
-        String username = txtUsername.getText().trim();
+        String username = normalizeEmail(txtUsername.getText());
         if (!validUsername(username)) return;
         requestAsync("READ " + username + " " + fileName, response -> {
             if (!response.startsWith("MAIL_CONTENT|")) {
@@ -531,16 +613,32 @@ public class MailClientGUI extends JFrame {
         return label;
     }
 
-    private static JLabel createNavItem(String text, boolean selected) {
-        JLabel item = new JLabel(text);
+    private void showPage(String page, JButton selectedButton) {
+        pageLayout.show(pageContainer, page);
+        styleNavButton(btnInboxNav, selectedButton == btnInboxNav);
+        styleNavButton(btnComposeNav, selectedButton == btnComposeNav);
+        styleNavButton(btnConnectionNav, selectedButton == btnConnectionNav);
+    }
+
+    private static JButton createNavButton(String text, boolean selected) {
+        JButton item = new JButton(text);
         item.setAlignmentX(Component.LEFT_ALIGNMENT);
         item.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-        item.setOpaque(selected);
+        item.setHorizontalAlignment(SwingConstants.LEFT);
+        item.setFocusPainted(false);
+        item.setBorderPainted(false);
+        item.setContentAreaFilled(true);
+        item.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        styleNavButton(item, selected);
+        return item;
+    }
+
+    private static void styleNavButton(JButton item, boolean selected) {
+        item.setOpaque(true);
         item.setBackground(selected ? new Color(49, 46, 129) : NAVY);
         item.setForeground(selected ? Color.WHITE : new Color(148, 163, 184));
         item.setFont(new Font("Segoe UI", Font.BOLD, 12));
         item.setBorder(new EmptyBorder(12, 12, 12, 8));
-        return item;
     }
 
     private static void styleField(JTextField field) {

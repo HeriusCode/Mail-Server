@@ -10,11 +10,14 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 public class MailStorageService {
     private static final String WELCOME_MESSAGE =
-            "Thank you for using this service. we hope that you will feel comfortable...";
+            "Người gửi: MailFlow System\n"
+            + "Tiêu đề: Chào mừng bạn đến với MailFlow\n\n"
+            + "Cảm ơn bạn đã sử dụng dịch vụ thư UDP của MailFlow.";
 
     private final Path storageRoot;
 
@@ -32,10 +35,11 @@ public class MailStorageService {
     }
 
     public boolean register(String username) {
-        if (!isValidUsername(username)) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email)) {
             return false;
         }
-        Path userDirectory = storageRoot.resolve(username);
+        Path userDirectory = storageRoot.resolve(email);
 
         try {
             if (Files.exists(userDirectory)) {
@@ -52,10 +56,11 @@ public class MailStorageService {
     }
 
     public List<String> getMailFiles(String username) {
-        if (!isValidUsername(username)) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email)) {
             return null;
         }
-        Path userDirectory = storageRoot.resolve(username);
+        Path userDirectory = storageRoot.resolve(email);
 
         if (!Files.isDirectory(userDirectory)) {
             return null;
@@ -77,10 +82,11 @@ public class MailStorageService {
     }
 
     public boolean saveMail(String toUser, String content) {
-        if (!isValidUsername(toUser)) {
+        String email = normalizeEmail(toUser);
+        if (!isValidEmail(email)) {
             return false;
         }
-        Path userDirectory = storageRoot.resolve(toUser);
+        Path userDirectory = storageRoot.resolve(email);
 
         if (!Files.isDirectory(userDirectory)) {
             return false;
@@ -98,10 +104,11 @@ public class MailStorageService {
     }
 
     public String readMail(String username, String fileName) {
-        if (!isValidUsername(username)) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email)) {
             return null;
         }
-        Path userDirectory = storageRoot.resolve(username).normalize();
+        Path userDirectory = storageRoot.resolve(email).normalize();
         Path mailFile = userDirectory.resolve(fileName).normalize();
         if (!mailFile.startsWith(userDirectory) || !Files.isRegularFile(mailFile)) {
             return null;
@@ -114,7 +121,11 @@ public class MailStorageService {
         }
     }
 
-    private boolean isValidUsername(String username) {
-        return username != null && username.matches("[a-zA-Z0-9_]+");
+    private String normalizeEmail(String username) {
+        return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isValidEmail(String email) {
+        return email.matches("[a-z0-9._%+-]+@gmail\\.com");
     }
 }

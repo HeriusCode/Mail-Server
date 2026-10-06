@@ -126,9 +126,9 @@ public class MailServerGUI extends JFrame {
         navTitle.setFont(new Font("Segoe UI", Font.BOLD, 10));
         navTitle.setBorder(new EmptyBorder(42, 10, 12, 0));
         nav.add(navTitle);
-        nav.add(createNavItem("▦   Tổng quan", true));
-        nav.add(createNavItem("◎   UDP endpoint", false));
-        nav.add(createNavItem("≡   Nhật ký", false));
+        nav.add(createNavItem("TỔNG QUAN", true));
+        nav.add(createNavItem("UDP ENDPOINT", false));
+        nav.add(createNavItem("NHẬT KÝ", false));
         sidebar.add(nav, BorderLayout.CENTER);
 
         RoundedPanel info = new RoundedPanel(14, new Color(30, 41, 59));
@@ -196,12 +196,12 @@ public class MailServerGUI extends JFrame {
         card.setBorder(new EmptyBorder(14, 17, 14, 17));
         JPanel form = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
         form.setOpaque(false);
-        JLabel icon = new JLabel("◎", SwingConstants.CENTER);
+        JLabel icon = new JLabel("UDP", SwingConstants.CENTER);
         icon.setPreferredSize(new Dimension(35, 35));
         icon.setOpaque(true);
         icon.setBackground(new Color(238, 242, 255));
         icon.setForeground(PRIMARY);
-        icon.setFont(new Font("Segoe UI", Font.BOLD, 18));
+        icon.setFont(new Font("Segoe UI", Font.BOLD, 9));
         form.add(icon);
         form.add(createSmallLabel("Bind IP"));
         styleField(txtBindHost);

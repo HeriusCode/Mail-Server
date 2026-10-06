@@ -67,12 +67,12 @@ public class MailClient {
     }
 
     private static void register(Scanner scanner, UdpMailClient client) throws IOException {
-        System.out.print("Nhập username: ");
+        System.out.print("Nhập tài khoản Gmail: ");
         System.out.println("Server: " + client.sendRequest("REGISTER " + scanner.nextLine().trim()));
     }
 
     private static void login(Scanner scanner, UdpMailClient client) throws IOException {
-        System.out.print("Nhập username: ");
+        System.out.print("Nhập tài khoản Gmail: ");
         String response = client.sendRequest("LOGIN " + scanner.nextLine().trim());
         if (!response.startsWith("LOGIN_SUCCESS|")) {
             System.out.println("Server: " + response);
@@ -91,11 +91,18 @@ public class MailClient {
     }
 
     private static void sendMail(Scanner scanner, UdpMailClient client) throws IOException {
-        System.out.print("Nhập người nhận: ");
+        System.out.print("Nhập Gmail người gửi: ");
+        String sender = scanner.nextLine().trim();
+        System.out.print("Nhập Gmail người nhận: ");
         String recipient = scanner.nextLine().trim();
+        System.out.print("Nhập tiêu đề thư: ");
+        String subject = scanner.nextLine().trim();
         System.out.print("Nhập nội dung thư: ");
+        String formattedMail = "Người gửi: " + sender + "\n"
+                + "Người nhận: " + recipient + "\n"
+                + "Tiêu đề: " + subject + "\n\n" + scanner.nextLine();
         String encodedContent = Base64.getEncoder().encodeToString(
-                scanner.nextLine().getBytes(StandardCharsets.UTF_8));
+                formattedMail.getBytes(StandardCharsets.UTF_8));
         System.out.println("Server: " + client.sendRequest(
                 "SEND " + recipient + " " + encodedContent));
     }
