@@ -68,12 +68,21 @@ public class MailClient {
 
     private static void register(Scanner scanner, UdpMailClient client) throws IOException {
         System.out.print("Nhập tài khoản Gmail: ");
-        System.out.println("Server: " + client.sendRequest("REGISTER " + scanner.nextLine().trim()));
+        String email = scanner.nextLine().trim();
+        System.out.print("Nhập mật khẩu (ít nhất 6 ký tự): ");
+        String password = Base64.getEncoder().encodeToString(
+                scanner.nextLine().getBytes(StandardCharsets.UTF_8));
+        System.out.println("Server: " + client.sendRequest(
+                "REGISTER " + email + " " + password));
     }
 
     private static void login(Scanner scanner, UdpMailClient client) throws IOException {
         System.out.print("Nhập tài khoản Gmail: ");
-        String response = client.sendRequest("LOGIN " + scanner.nextLine().trim());
+        String email = scanner.nextLine().trim();
+        System.out.print("Nhập mật khẩu: ");
+        String password = Base64.getEncoder().encodeToString(
+                scanner.nextLine().getBytes(StandardCharsets.UTF_8));
+        String response = client.sendRequest("LOGIN " + email + " " + password);
         if (!response.startsWith("LOGIN_SUCCESS|")) {
             System.out.println("Server: " + response);
             return;

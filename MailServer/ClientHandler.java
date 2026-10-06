@@ -38,15 +38,22 @@ public class ClientHandler {
     }
 
     private String handleRegister(String[] parts) {
-        if (parts.length != 2) return "INVALID_COMMAND";
-        boolean registered = storageService.register(parts[1]);
+        if (parts.length != 3) return "INVALID_COMMAND";
+        String password = decodePassword(parts[2]);
+        if (password == null) return "REGISTER_FAILED: Invalid password";
+        boolean registered = storageService.register(parts[1], password);
         listener.onLog("REGISTER " + parts[1] + ": "
                 + (registered ? "đã tạo tài khoản" : "thất bại hoặc đã tồn tại"));
         return registered ? "REGISTER_SUCCESS" : "REGISTER_FAILED: User already exists";
     }
 
     private String handleLogin(String[] parts) {
-        if (parts.length != 2) return "INVALID_COMMAND";
+        if (parts.length != 3) return "INVALID_COMMAND";
+        String password = decodePassword(parts[2]);
+        if (password == null || !storageService.authenticate(parts[1], password)) {
+            listener.onLog("LOGIN " + parts[1] + ": sai tài khoản hoặc mật khẩu");
+            return "LOGIN_FAILED: Invalid email or password";
+        }
         List<MailStorageService.MailSummary> mails =
                 storageService.getMailSummaries(parts[1]);
         if (mails == null) {
@@ -108,5 +115,14 @@ public class ClientHandler {
             if (line.startsWith(header)) return line.substring(header.length()).trim();
         }
         return "";
+    }
+
+    private String decodePassword(String encodedPassword) {
+        try {
+            return new String(Base64.getDecoder().decode(encodedPassword),
+                    StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 }

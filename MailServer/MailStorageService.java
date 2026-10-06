@@ -1,6 +1,9 @@
 package MailServer;
 
 import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -10,13 +13,20 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+
 public class MailStorageService {
     private static final String SENT_DIRECTORY = ".sent";
+    private static final String CREDENTIAL_FILE = ".credentials";
+    private static final int PASSWORD_ITERATIONS = 120_000;
+    private static final int PASSWORD_KEY_LENGTH = 256;
     private static final DateTimeFormatter DISPLAY_TIME =
             DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
     private static final String WELCOME_MESSAGE =
@@ -39,19 +49,45 @@ public class MailStorageService {
         }
     }
 
-    public boolean register(String username) {
+    public boolean register(String username, String password) {
         String email = normalizeEmail(username);
-        if (!isValidEmail(email)) return false;
+        if (!isValidEmail(email) || !isValidPassword(password)) return false;
         Path userDirectory = storageRoot.resolve(email);
         try {
-            if (Files.exists(userDirectory)) return false;
+            if (Files.exists(userDirectory)) {
+                Path credentialFile = userDirectory.resolve(CREDENTIAL_FILE);
+                if (Files.exists(credentialFile)) return false;
+                writeCredentials(credentialFile, password);
+                Files.createDirectories(userDirectory.resolve(SENT_DIRECTORY));
+                return true;
+            }
             Files.createDirectory(userDirectory);
             Files.createDirectory(userDirectory.resolve(SENT_DIRECTORY));
+            writeCredentials(userDirectory.resolve(CREDENTIAL_FILE), password);
             Files.writeString(userDirectory.resolve("new_email.txt"),
                     addTimestamp(WELCOME_MESSAGE, "Thời gian nhận", LocalDateTime.now()),
                     StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             return true;
         } catch (IOException exception) {
+            return false;
+        }
+    }
+
+    public boolean authenticate(String username, String password) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email) || password == null) return false;
+        Path credentialFile = storageRoot.resolve(email).resolve(CREDENTIAL_FILE);
+        if (!Files.isRegularFile(credentialFile)) return false;
+        try {
+            String[] fields = Files.readString(credentialFile, StandardCharsets.UTF_8)
+                    .trim().split(":", 3);
+            if (fields.length != 3) return false;
+            int iterations = Integer.parseInt(fields[0]);
+            byte[] salt = Base64.getDecoder().decode(fields[1]);
+            byte[] expectedHash = Base64.getDecoder().decode(fields[2]);
+            byte[] actualHash = hashPassword(password, salt, iterations, expectedHash.length * 8);
+            return MessageDigest.isEqual(expectedHash, actualHash);
+        } catch (IOException | GeneralSecurityException | IllegalArgumentException exception) {
             return false;
         }
     }
@@ -165,12 +201,45 @@ public class MailStorageService {
         return "";
     }
 
+    private void writeCredentials(Path credentialFile, String password)
+            throws IOException {
+        byte[] salt = new byte[16];
+        new SecureRandom().nextBytes(salt);
+        try {
+            byte[] hash = hashPassword(password, salt,
+                    PASSWORD_ITERATIONS, PASSWORD_KEY_LENGTH);
+            String value = PASSWORD_ITERATIONS + ":"
+                    + Base64.getEncoder().encodeToString(salt) + ":"
+                    + Base64.getEncoder().encodeToString(hash);
+            Files.writeString(credentialFile, value, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE_NEW);
+        } catch (GeneralSecurityException exception) {
+            throw new IOException("Không thể tạo mật khẩu an toàn", exception);
+        }
+    }
+
+    private byte[] hashPassword(String password, byte[] salt, int iterations,
+            int keyLength) throws GeneralSecurityException {
+        PBEKeySpec specification = new PBEKeySpec(
+                password.toCharArray(), salt, iterations, keyLength);
+        try {
+            return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(specification).getEncoded();
+        } finally {
+            specification.clearPassword();
+        }
+    }
+
     private String normalizeEmail(String username) {
         return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
     }
 
     private boolean isValidEmail(String email) {
         return email.matches("[a-z0-9._%+-]+@gmail\\.com");
+    }
+
+    private boolean isValidPassword(String password) {
+        return password != null && password.length() >= 6 && password.length() <= 128;
     }
 
     public static final class MailSummary {

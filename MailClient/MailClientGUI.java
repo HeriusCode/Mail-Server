@@ -1,6 +1,7 @@
 package MailClient;
 
 import java.awt.BorderLayout;
+import java.awt.BasicStroke;
 import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -12,6 +13,7 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.event.WindowAdapter;
@@ -19,6 +21,7 @@ import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.Locale;
 import java.text.SimpleDateFormat;
@@ -34,10 +37,12 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -61,17 +66,24 @@ public class MailClientGUI extends JFrame {
     private static final String PAGE_INBOX = "INBOX";
     private static final String PAGE_COMPOSE = "COMPOSE";
     private static final String PAGE_SENT = "SENT";
+    private static final String SCREEN_LOGIN = "LOGIN";
+    private static final String SCREEN_MAIL = "MAIL";
 
     private final JTextField txtServerHost = new JTextField(SERVER_HOST, 11);
     private final JTextField txtServerPort = new JTextField(String.valueOf(SERVER_PORT), 5);
     private final JTextField txtUsername = new JTextField(22);
+    private final JPasswordField txtPassword = new JPasswordField(22);
+    private final JToggleButton btnTogglePassword = new EyeToggleButton();
     private final JTextField txtToUser = new JTextField(28);
     private final JTextField txtSubject = new JTextField(28);
     private final JTextArea txtContent = new JTextArea(5, 30);
     private final JTextArea txtMailContent = new JTextArea();
     private final JTextArea txtSentContent = new JTextArea();
     private final JLabel lblStatus = new JLabel("Chưa kết nối đến máy chủ UDP");
+    private final JLabel lblLoginStatus = new JLabel("Nhập thông tin để bắt đầu");
     private final JLabel lblConnection = new JLabel("OFFLINE");
+    private final JLabel lblDashboardConnection = new JLabel("● OFFLINE");
+    private final JLabel lblSessionUser = new JLabel("Chưa đăng nhập");
     private final JLabel lblMailboxCount = new JLabel("0 thư");
     private final JLabel lblSentCount = new JLabel("0 thư");
     private final DefaultListModel<MailItem> mailListModel = new DefaultListModel<>();
@@ -80,7 +92,7 @@ public class MailClientGUI extends JFrame {
     private final JList<MailItem> listSent = new JList<>(sentListModel);
     private final JButton btnConnect = createButton("Kết nối", PRIMARY, Color.WHITE);
     private final JButton btnRegister = createButton("Tạo tài khoản", new Color(71, 85, 105), Color.WHITE);
-    private final JButton btnLogin = createButton("Mở hộp thư", PRIMARY, Color.WHITE);
+    private final JButton btnLogin = createButton("Đăng nhập", PRIMARY, Color.WHITE);
     private final JButton btnRefresh = createButton("Làm mới", new Color(241, 245, 249), TEXT);
     private final JButton btnRefreshSent = createButton("Làm mới lịch sử",
             new Color(241, 245, 249), TEXT);
@@ -88,8 +100,11 @@ public class MailClientGUI extends JFrame {
     private final JButton btnInboxNav = createNavButton("HỘP THƯ ĐẾN", true);
     private final JButton btnComposeNav = createNavButton("SOẠN THƯ MỚI", false);
     private final JButton btnSentNav = createNavButton("LỊCH SỬ GỬI THƯ", false);
+    private final JButton btnLogoutNav = createNavButton("ĐĂNG XUẤT", false);
     private final CardLayout pageLayout = new CardLayout();
     private final JPanel pageContainer = new JPanel(pageLayout);
+    private final CardLayout screenLayout = new CardLayout();
+    private final JPanel screenContainer = new JPanel(screenLayout);
     private final ExecutorService networkWorker = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "udp-mail-client-worker");
         thread.setDaemon(true);
@@ -97,6 +112,7 @@ public class MailClientGUI extends JFrame {
     });
 
     private volatile UdpMailClient udpClient;
+    private volatile String currentUser = "";
 
     public MailClientGUI() {
         super("MailFlow UDP Client");
@@ -111,7 +127,18 @@ public class MailClientGUI extends JFrame {
         getContentPane().setBackground(BACKGROUND);
         setLayout(new BorderLayout());
 
-        add(createSidebar(), BorderLayout.WEST);
+        screenContainer.add(createLoginScreen(), SCREEN_LOGIN);
+        screenContainer.add(createMailScreen(), SCREEN_MAIL);
+        add(screenContainer, BorderLayout.CENTER);
+        screenLayout.show(screenContainer, SCREEN_LOGIN);
+
+        bindEvents();
+    }
+
+    private JPanel createMailScreen() {
+        JPanel screen = new JPanel(new BorderLayout());
+        screen.setBackground(BACKGROUND);
+        screen.add(createSidebar(), BorderLayout.WEST);
 
         JPanel main = new JPanel(new BorderLayout(0, 18));
         main.setOpaque(false);
@@ -119,9 +146,160 @@ public class MailClientGUI extends JFrame {
         main.add(createHeader(), BorderLayout.NORTH);
         main.add(createWorkspace(), BorderLayout.CENTER);
         main.add(createStatusBar(), BorderLayout.SOUTH);
-        add(main, BorderLayout.CENTER);
+        screen.add(main, BorderLayout.CENTER);
+        return screen;
+    }
 
-        bindEvents();
+    private JPanel createLoginScreen() {
+        JPanel screen = new JPanel(new BorderLayout());
+        screen.setBackground(BACKGROUND);
+
+        JPanel welcome = new JPanel(new GridBagLayout());
+        welcome.setPreferredSize(new Dimension(410, 0));
+        welcome.setBackground(NAVY);
+        welcome.setBorder(new EmptyBorder(45, 42, 45, 42));
+        GridBagConstraints left = new GridBagConstraints();
+        left.gridx = 0;
+        left.gridy = 0;
+        left.anchor = GridBagConstraints.WEST;
+        left.fill = GridBagConstraints.HORIZONTAL;
+        JLabel logo = new JLabel("M", SwingConstants.CENTER);
+        logo.setPreferredSize(new Dimension(58, 58));
+        logo.setOpaque(true);
+        logo.setBackground(PRIMARY);
+        logo.setForeground(Color.WHITE);
+        logo.setFont(new Font("Segoe UI", Font.BOLD, 28));
+        welcome.add(logo, left);
+        left.gridy++;
+        left.insets = new Insets(22, 0, 0, 0);
+        JLabel brand = new JLabel("MailFlow");
+        brand.setForeground(Color.WHITE);
+        brand.setFont(new Font("Segoe UI", Font.BOLD, 34));
+        welcome.add(brand, left);
+        left.gridy++;
+        left.insets = new Insets(7, 0, 0, 0);
+        JLabel description = new JLabel("<html><div style='width:290px'>"
+                + "Quản lý hộp thư nội bộ nhanh chóng qua giao thức UDP.<br><br>"
+                + "• Gửi và nhận thư trong mạng LAN<br>"
+                + "• Lưu lịch sử gửi thư<br>"
+                + "• Timeout và retry tự động"
+                + "</div></html>");
+        description.setForeground(new Color(203, 213, 225));
+        description.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+        welcome.add(description, left);
+        left.gridy++;
+        left.weighty = 1;
+        welcome.add(new JLabel(), left);
+        left.gridy++;
+        left.weighty = 0;
+        JLabel protocol = new JLabel("UDP DATAGRAM • PORT MẶC ĐỊNH 5000");
+        protocol.setForeground(new Color(165, 180, 252));
+        protocol.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        welcome.add(protocol, left);
+        screen.add(welcome, BorderLayout.WEST);
+
+        JPanel formArea = new JPanel(new GridBagLayout());
+        formArea.setOpaque(false);
+        RoundedPanel card = new RoundedPanel(22, SURFACE);
+        card.setPreferredSize(new Dimension(520, 550));
+        card.setLayout(new GridBagLayout());
+        card.setBorder(new EmptyBorder(34, 42, 32, 42));
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = 0;
+        c.gridwidth = 2;
+        c.weightx = 1;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.anchor = GridBagConstraints.WEST;
+        JLabel title = new JLabel("Đăng nhập MailFlow");
+        title.setForeground(TEXT);
+        title.setFont(new Font("Segoe UI", Font.BOLD, 25));
+        card.add(title, c);
+        c.gridy++;
+        c.insets = new Insets(5, 0, 22, 0);
+        JLabel subtitle = new JLabel("Kết nối MailServer và mở hộp thư của bạn");
+        subtitle.setForeground(MUTED);
+        subtitle.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        card.add(subtitle, c);
+
+        c.gridwidth = 1;
+        c.insets = new Insets(5, 0, 6, 12);
+        c.gridy++;
+        c.gridx = 0;
+        c.weightx = 0.7;
+        card.add(createSmallLabel("ĐỊA CHỈ SERVER"), c);
+        c.gridx = 1;
+        c.weightx = 0.3;
+        card.add(createSmallLabel("PORT UDP"), c);
+        c.gridy++;
+        c.gridx = 0;
+        c.weightx = 0.7;
+        styleField(txtServerHost);
+        card.add(txtServerHost, c);
+        c.gridx = 1;
+        c.weightx = 0.3;
+        styleField(txtServerPort);
+        card.add(txtServerPort, c);
+
+        c.gridy++;
+        c.gridx = 0;
+        c.gridwidth = 2;
+        c.insets = new Insets(11, 0, 8, 0);
+        card.add(btnConnect, c);
+
+        c.gridy++;
+        c.insets = new Insets(15, 0, 6, 0);
+        card.add(createSmallLabel("TÀI KHOẢN GMAIL"), c);
+        c.gridy++;
+        c.insets = new Insets(0, 0, 10, 0);
+        styleField(txtUsername);
+        txtUsername.setToolTipText("Ví dụ: tenban@gmail.com");
+        card.add(txtUsername, c);
+
+        c.gridy++;
+        c.insets = new Insets(5, 0, 6, 0);
+        card.add(createSmallLabel("MẬT KHẨU"), c);
+        c.gridy++;
+        c.insets = new Insets(0, 0, 10, 0);
+        txtPassword.setEchoChar('\u2022');
+        txtPassword.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        txtPassword.setForeground(TEXT);
+        txtPassword.setBackground(new Color(248, 250, 252));
+        txtPassword.setBorder(new EmptyBorder(7, 9, 7, 5));
+        txtPassword.setToolTipText("Mật khẩu có ít nhất 6 ký tự");
+        JPanel passwordPanel = new JPanel(new BorderLayout());
+        passwordPanel.setBackground(new Color(248, 250, 252));
+        passwordPanel.setBorder(BorderFactory.createLineBorder(BORDER));
+        passwordPanel.add(txtPassword, BorderLayout.CENTER);
+        passwordPanel.add(btnTogglePassword, BorderLayout.EAST);
+        card.add(passwordPanel, c);
+
+        JPanel accountActions = new JPanel(new GridLayout(1, 2, 10, 0));
+        accountActions.setOpaque(false);
+        accountActions.add(btnRegister);
+        accountActions.add(btnLogin);
+        c.gridy++;
+        c.insets = new Insets(5, 0, 16, 0);
+        card.add(accountActions, c);
+
+        JPanel state = new JPanel(new BorderLayout(10, 0));
+        state.setOpaque(false);
+        lblLoginStatus.setForeground(MUTED);
+        lblLoginStatus.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        lblConnection.setOpaque(true);
+        lblConnection.setBackground(new Color(254, 226, 226));
+        lblConnection.setForeground(ERROR);
+        lblConnection.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        lblConnection.setBorder(new EmptyBorder(7, 10, 7, 10));
+        state.add(lblLoginStatus, BorderLayout.CENTER);
+        state.add(lblConnection, BorderLayout.EAST);
+        c.gridy++;
+        c.insets = new Insets(0, 0, 0, 0);
+        card.add(state, c);
+
+        formArea.add(card);
+        screen.add(formArea, BorderLayout.CENTER);
+        return screen;
     }
 
     private JPanel createSidebar() {
@@ -157,6 +335,9 @@ public class MailClientGUI extends JFrame {
         navigation.add(btnInboxNav);
         navigation.add(btnComposeNav);
         navigation.add(btnSentNav);
+        navigation.add(javax.swing.Box.createVerticalStrut(18));
+        btnLogoutNav.setForeground(new Color(248, 113, 113));
+        navigation.add(btnLogoutNav);
         sidebar.add(navigation, BorderLayout.CENTER);
 
         RoundedPanel networkCard = new RoundedPanel(14, new Color(30, 41, 59));
@@ -189,32 +370,39 @@ public class MailClientGUI extends JFrame {
         titlePanel.add(subtitle);
         header.add(titlePanel, BorderLayout.WEST);
 
-        RoundedPanel connection = new RoundedPanel(16, SURFACE);
-        connection.setLayout(new FlowLayout(FlowLayout.RIGHT, 9, 9));
-        connection.setBorder(new EmptyBorder(0, 8, 0, 8));
+        RoundedPanel session = new RoundedPanel(16, SURFACE);
+        session.setLayout(new FlowLayout(FlowLayout.RIGHT, 10, 9));
+        session.setBorder(new EmptyBorder(0, 9, 0, 9));
         JLabel udpPill = new JLabel(" UDP ");
         udpPill.setOpaque(true);
         udpPill.setBackground(PRIMARY_LIGHT);
         udpPill.setForeground(PRIMARY);
         udpPill.setFont(new Font("Segoe UI", Font.BOLD, 11));
         udpPill.setBorder(new EmptyBorder(6, 8, 6, 8));
-        connection.add(udpPill);
-        connection.add(createSmallLabel("Host"));
-        styleField(txtServerHost);
-        connection.add(txtServerHost);
-        connection.add(createSmallLabel("Port"));
-        styleField(txtServerPort);
-        connection.add(txtServerPort);
-        connection.add(btnConnect);
-        header.add(connection, BorderLayout.EAST);
+        session.add(udpPill);
+        JLabel avatar = new JLabel("@", SwingConstants.CENTER);
+        avatar.setPreferredSize(new Dimension(32, 32));
+        avatar.setOpaque(true);
+        avatar.setBackground(PRIMARY_LIGHT);
+        avatar.setForeground(PRIMARY);
+        avatar.setFont(new Font("Segoe UI", Font.BOLD, 16));
+        session.add(avatar);
+        lblSessionUser.setForeground(TEXT);
+        lblSessionUser.setFont(new Font("Segoe UI", Font.BOLD, 12));
+        session.add(lblSessionUser);
+        lblDashboardConnection.setOpaque(true);
+        lblDashboardConnection.setBackground(new Color(254, 226, 226));
+        lblDashboardConnection.setForeground(ERROR);
+        lblDashboardConnection.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        lblDashboardConnection.setBorder(new EmptyBorder(7, 10, 7, 10));
+        session.add(lblDashboardConnection);
+        header.add(session, BorderLayout.EAST);
         return header;
     }
 
     private JPanel createWorkspace() {
         JPanel workspace = new JPanel(new BorderLayout(0, 14));
         workspace.setOpaque(false);
-        workspace.add(createAccountBar(), BorderLayout.NORTH);
-
         pageContainer.setOpaque(false);
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 createInboxCard(), createReaderCard());
@@ -228,35 +416,6 @@ public class MailClientGUI extends JFrame {
         pageContainer.add(createSentHistoryPage(), PAGE_SENT);
         workspace.add(pageContainer, BorderLayout.CENTER);
         return workspace;
-    }
-
-    private JPanel createAccountBar() {
-        RoundedPanel account = new RoundedPanel(16, SURFACE);
-        account.setLayout(new BorderLayout(14, 0));
-        account.setBorder(new EmptyBorder(13, 16, 13, 16));
-        JPanel form = new JPanel(new FlowLayout(FlowLayout.LEFT, 9, 0));
-        form.setOpaque(false);
-        JLabel avatar = new JLabel("@", SwingConstants.CENTER);
-        avatar.setPreferredSize(new Dimension(34, 34));
-        avatar.setOpaque(true);
-        avatar.setBackground(PRIMARY_LIGHT);
-        avatar.setForeground(PRIMARY);
-        avatar.setFont(new Font("Segoe UI", Font.BOLD, 17));
-        form.add(avatar);
-        form.add(createSmallLabel("Tài khoản Gmail"));
-        styleField(txtUsername);
-        txtUsername.setToolTipText("Ví dụ: tenban@gmail.com");
-        form.add(txtUsername);
-        form.add(btnRegister);
-        form.add(btnLogin);
-        account.add(form, BorderLayout.WEST);
-        lblConnection.setOpaque(true);
-        lblConnection.setBackground(new Color(254, 226, 226));
-        lblConnection.setForeground(ERROR);
-        lblConnection.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        lblConnection.setBorder(new EmptyBorder(7, 10, 7, 10));
-        account.add(lblConnection, BorderLayout.EAST);
-        return account;
     }
 
     private JPanel createInboxCard() {
@@ -440,12 +599,19 @@ public class MailClientGUI extends JFrame {
         btnRefresh.addActionListener(event -> login());
         btnRefreshSent.addActionListener(event -> loadSentHistory());
         btnSend.addActionListener(event -> sendMail());
+        btnTogglePassword.addActionListener(event -> {
+            boolean visible = btnTogglePassword.isSelected();
+            txtPassword.setEchoChar(visible ? (char) 0 : '\u2022');
+            btnTogglePassword.setToolTipText(visible ? "Ẩn mật khẩu" : "Hiện mật khẩu");
+            btnTogglePassword.repaint();
+        });
         btnInboxNav.addActionListener(event -> showPage(PAGE_INBOX, btnInboxNav));
         btnComposeNav.addActionListener(event -> showPage(PAGE_COMPOSE, btnComposeNav));
         btnSentNav.addActionListener(event -> {
             showPage(PAGE_SENT, btnSentNav);
             loadSentHistory();
         });
+        btnLogoutNav.addActionListener(event -> logout());
         listFiles.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) showSelectedMail(listFiles.getSelectedValue());
         });
@@ -502,13 +668,16 @@ public class MailClientGUI extends JFrame {
     private void register() {
         String username = normalizeEmail(txtUsername.getText());
         if (!validUsername(username)) return;
+        String password = readPassword();
+        if (!validPassword(password)) return;
         txtUsername.setText(username);
-        requestAsync("REGISTER " + username, response -> {
+        requestAsync("REGISTER " + username + " " + encodePassword(password), response -> {
             boolean error = !"REGISTER_SUCCESS".equals(response);
             if (response.startsWith("REGISTER_FAILED")) {
-                setStatus("Tài khoản Gmail đã tồn tại. Hãy chọn Mở hộp thư.", true);
+                setStatus("Tài khoản đã có mật khẩu hoặc thông tin không hợp lệ", true);
             } else {
-                setStatus(error ? response : "Tạo tài khoản Gmail thành công", error);
+                setStatus(error ? response
+                        : "Tạo tài khoản hoặc thiết lập mật khẩu lần đầu thành công", error);
             }
         });
     }
@@ -516,15 +685,21 @@ public class MailClientGUI extends JFrame {
     private void login() {
         String username = normalizeEmail(txtUsername.getText());
         if (!validUsername(username)) return;
+        String password = readPassword();
+        if (!validPassword(password)) return;
         txtUsername.setText(username);
-        requestAsync("LOGIN " + username, response -> {
+        requestAsync("LOGIN " + username + " " + encodePassword(password), response -> {
             if (!response.startsWith("LOGIN_SUCCESS|")) {
-                setStatus("Tài khoản Gmail chưa được đăng ký trên MailServer", true);
+                setStatus("Tài khoản Gmail hoặc mật khẩu không chính xác", true);
                 return;
             }
             updateMailList(response);
+            currentUser = username;
+            resetPasswordField();
+            lblSessionUser.setText(username);
             setStatus("Đã tải " + mailListModel.size() + " thư của " + username, false);
             showPage(PAGE_INBOX, btnInboxNav);
+            screenLayout.show(screenContainer, SCREEN_MAIL);
         });
     }
 
@@ -538,6 +713,25 @@ public class MailClientGUI extends JFrame {
         return value.trim().toLowerCase(Locale.ROOT);
     }
 
+    private String readPassword() {
+        char[] characters = txtPassword.getPassword();
+        try {
+            return new String(characters);
+        } finally {
+            Arrays.fill(characters, '\0');
+        }
+    }
+
+    private boolean validPassword(String password) {
+        if (password.length() >= 6 && password.length() <= 128) return true;
+        setStatus("Mật khẩu phải có từ 6 đến 128 ký tự", true);
+        return false;
+    }
+
+    private String encodePassword(String password) {
+        return Base64.getEncoder().encodeToString(password.getBytes(StandardCharsets.UTF_8));
+    }
+
     private void updateMailList(String response) {
         parseMailList(response, "LOGIN_SUCCESS|", mailListModel);
         lblMailboxCount.setText(mailListModel.size() + " thư");
@@ -547,7 +741,7 @@ public class MailClientGUI extends JFrame {
     }
 
     private void loadSentHistory() {
-        String username = normalizeEmail(txtUsername.getText());
+        String username = currentUser;
         if (!validUsername(username)) return;
         requestAsync("SENT " + username, response -> {
             if (!response.startsWith("SENT_SUCCESS|")) {
@@ -586,7 +780,7 @@ public class MailClientGUI extends JFrame {
     }
 
     private void sendMail() {
-        String sender = normalizeEmail(txtUsername.getText());
+        String sender = currentUser;
         String recipient = normalizeEmail(txtToUser.getText());
         String subject = txtSubject.getText().trim();
         String content = txtContent.getText();
@@ -602,7 +796,6 @@ public class MailClientGUI extends JFrame {
             setStatus("Vui lòng nhập đầy đủ tiêu đề và nội dung thư", true);
             return;
         }
-        txtUsername.setText(sender);
         txtToUser.setText(recipient);
         String formattedMail = "Người gửi: " + sender + "\n"
                 + "Người nhận: " + recipient + "\n"
@@ -625,7 +818,7 @@ public class MailClientGUI extends JFrame {
 
     private void showSelectedMail(MailItem mail) {
         if (mail == null) return;
-        String username = normalizeEmail(txtUsername.getText());
+        String username = currentUser;
         if (!validUsername(username)) return;
         requestAsync("READ " + username + " " + mail.fileName, response -> {
             if (!response.startsWith("MAIL_CONTENT|")) {
@@ -645,7 +838,7 @@ public class MailClientGUI extends JFrame {
 
     private void showSelectedSentMail(MailItem mail) {
         if (mail == null) return;
-        String username = normalizeEmail(txtUsername.getText());
+        String username = currentUser;
         if (!validUsername(username)) return;
         requestAsync("READ_SENT " + username + " " + mail.fileName, response -> {
             if (!response.startsWith("MAIL_CONTENT|")) {
@@ -701,11 +894,46 @@ public class MailClientGUI extends JFrame {
         lblConnection.setText(online ? "● ONLINE" : "● OFFLINE");
         lblConnection.setForeground(online ? SUCCESS : ERROR);
         lblConnection.setBackground(online ? new Color(209, 250, 229) : new Color(254, 226, 226));
+        lblDashboardConnection.setText(online ? "● ONLINE" : "● OFFLINE");
+        lblDashboardConnection.setForeground(online ? SUCCESS : ERROR);
+        lblDashboardConnection.setBackground(online
+                ? new Color(209, 250, 229) : new Color(254, 226, 226));
     }
 
     private void setStatus(String message, boolean error) {
         lblStatus.setText((error ? "●  " : "✓  ") + message);
         lblStatus.setForeground(error ? ERROR : MUTED);
+        lblLoginStatus.setText(message);
+        lblLoginStatus.setForeground(error ? ERROR : MUTED);
+    }
+
+    private void logout() {
+        closeConnection();
+        currentUser = "";
+        lblSessionUser.setText("Chưa đăng nhập");
+        txtUsername.setText("");
+        resetPasswordField();
+        txtToUser.setText("");
+        txtSubject.setText("");
+        txtContent.setText("");
+        mailListModel.clear();
+        sentListModel.clear();
+        lblMailboxCount.setText("0 thư");
+        lblSentCount.setText("0 thư");
+        txtMailContent.setText("Chọn một thư ở danh sách bên trái để xem nội dung.");
+        txtSentContent.setText("Chọn một thư đã gửi để xem lại nội dung.");
+        setConnectionState(false);
+        showPage(PAGE_INBOX, btnInboxNav);
+        setStatus("Đã đăng xuất. Vui lòng kết nối và đăng nhập lại.", false);
+        screenLayout.show(screenContainer, SCREEN_LOGIN);
+    }
+
+    private void resetPasswordField() {
+        txtPassword.setText("");
+        txtPassword.setEchoChar('\u2022');
+        btnTogglePassword.setSelected(false);
+        btnTogglePassword.setToolTipText("Hiện mật khẩu");
+        btnTogglePassword.repaint();
     }
 
     private void closeConnection() {
@@ -769,6 +997,38 @@ public class MailClientGUI extends JFrame {
         button.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         button.setBorder(new EmptyBorder(9, 15, 9, 15));
         return button;
+    }
+
+    private static final class EyeToggleButton extends JToggleButton {
+        private EyeToggleButton() {
+            setPreferredSize(new Dimension(42, 32));
+            setFocusPainted(false);
+            setBorderPainted(false);
+            setContentAreaFilled(false);
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setToolTipText("Hiện mật khẩu");
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g2 = (Graphics2D) graphics.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(new Color(248, 250, 252));
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            g2.setColor(isSelected() ? PRIMARY : MUTED);
+            g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND,
+                    BasicStroke.JOIN_ROUND));
+            int centerX = getWidth() / 2;
+            int centerY = getHeight() / 2;
+            g2.drawArc(centerX - 12, centerY - 8, 24, 16, 0, 180);
+            g2.drawArc(centerX - 12, centerY - 8, 24, 16, 180, 180);
+            g2.fillOval(centerX - 3, centerY - 3, 6, 6);
+            if (!isSelected()) {
+                g2.setColor(new Color(148, 163, 184));
+                g2.drawLine(centerX - 12, centerY - 10, centerX + 12, centerY + 10);
+            }
+            g2.dispose();
+        }
     }
 
     private static final class RoundedPanel extends JPanel {

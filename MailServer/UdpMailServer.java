@@ -13,7 +13,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Máy chủ UDP dùng chung cho phiên bản console và Swing. */
 public class UdpMailServer implements Closeable {
     public static final int MAX_PACKET_SIZE = 60_000;
     private static final long CACHE_TTL_MILLIS = 120_000;
