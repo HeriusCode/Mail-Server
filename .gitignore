@@ -1,0 +1,12 @@
+# Java build output
+out/
+out_udp/
+*.class
+
+# Runtime mail data
+mail_storage/
+
+# IDE metadata
+.idea/
+.vscode/
+*.iml
