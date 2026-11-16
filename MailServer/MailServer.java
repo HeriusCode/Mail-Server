@@ -5,21 +5,31 @@ import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
 public class MailServer {
-    private static final String DEFAULT_BIND_HOST = "0.0.0.0";
+    private static final String DEFAULT_BIND_HOST = "127.0.0.1";
     private static final int PORT = 5000;
 
     public static void main(String[] args) {
+        if (!java.util.Arrays.asList(args).contains("--console")) {
+            MailServerGUI.main(args);
+            return;
+        }
+        runConsole();
+    }
+
+    private static void runConsole() {
         try (Scanner scanner = new Scanner(System.in, StandardCharsets.UTF_8)) {
             System.out.print("Nhập IP bind của UDP server (mặc định "
                     + DEFAULT_BIND_HOST + "): ");
             String host = scanner.nextLine().trim();
             if (host.isEmpty()) host = DEFAULT_BIND_HOST;
             int port = readPort(scanner);
-            try (UdpMailServer server = new UdpMailServer(host, port,
+            try (MailServerRuntime server = new MailServerRuntime(host, port,
                     new MailStorageService(), null)) {
                 System.out.println("MailServer UDP đã khởi động tại " + host + ":" + port);
                 server.run();
             }
+        } catch (IllegalStateException exception) {
+            System.err.println("Không thể khởi động: kiểm tra thư mục lưu trữ và các cổng giao thức.");
         } catch (IOException exception) {
             System.err.println("MailServer UDP lỗi: " + exception.getMessage());
         }

@@ -32,24 +32,30 @@ public class UdpMailServer implements Closeable {
     private final DatagramSocket socket;
     private final ClientHandler handler;
     private final Listener listener;
-    private final ExecutorService workers = Executors.newFixedThreadPool(
-            Math.max(2, Runtime.getRuntime().availableProcessors()));
+    private final ExecutorService workers = new java.util.concurrent.ThreadPoolExecutor(2, 4,
+            30, java.util.concurrent.TimeUnit.SECONDS, new java.util.concurrent.ArrayBlockingQueue<>(128));
     private final Map<String, CachedResponse> responseCache = new ConcurrentHashMap<>();
     private volatile boolean running = true;
 
     public UdpMailServer(String host, int port, MailStorageService storageService,
             Listener listener) throws IOException {
+        this(host, port, storageService, listener, new SessionManager());
+    }
+
+    public UdpMailServer(String host, int port, MailStorageService storageService,
+            Listener listener, SessionManager sessions) throws IOException {
         this.listener = listener == null ? CONSOLE_LISTENER : listener;
-        this.handler = new ClientHandler(storageService, this.listener::onLog);
+        this.handler = new ClientHandler(storageService, this.listener::onLog, sessions);
         this.socket = new DatagramSocket(new InetSocketAddress(
                 InetAddress.getByName(host), port));
+        this.listener.onLog("Storage: " + storageService.backendName());
     }
 
     public void run() throws IOException {
         listener.onLog("UDP server đang lắng nghe tại "
                 + socket.getLocalAddress().getHostAddress() + ":" + socket.getLocalPort());
         while (running) {
-            byte[] buffer = new byte[MAX_PACKET_SIZE];
+            byte[] buffer = new byte[MAX_PACKET_SIZE + 1];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 socket.receive(packet);
@@ -57,39 +63,68 @@ public class UdpMailServer implements Closeable {
                 if (!running || socket.isClosed()) break;
                 throw exception;
             }
+            if (packet.getLength() > MAX_PACKET_SIZE) continue;
             byte[] requestBytes = new byte[packet.getLength()];
             System.arraycopy(packet.getData(), packet.getOffset(), requestBytes, 0,
                     packet.getLength());
             InetSocketAddress client = new InetSocketAddress(packet.getAddress(), packet.getPort());
             listener.onClientSeen(client);
-            workers.submit(() -> processPacket(client, requestBytes));
+            try { workers.submit(() -> processPacket(client, requestBytes)); }
+            catch (java.util.concurrent.RejectedExecutionException e) { send(client, "0|SERVER_BUSY"); }
         }
     }
 
     private void processPacket(InetSocketAddress client, byte[] requestBytes) {
-        String envelope = new String(requestBytes, StandardCharsets.UTF_8);
+        String envelope;
+        try {
+            envelope = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(requestBytes)).toString();
+        } catch (java.nio.charset.CharacterCodingException e) { send(client, "0|INVALID_PACKET"); return; }
         int separator = envelope.indexOf('|');
         if (separator <= 0 || separator == envelope.length() - 1) {
             send(client, "0|INVALID_PACKET");
             return;
         }
         String requestId = envelope.substring(0, separator);
+        if (!requestId.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+            send(client, "0|INVALID_PACKET"); return;
+        }
+        String request = envelope.substring(separator + 1);
+        listener.onRequest(client);
+        // Never cache authenticated responses: every replay must recheck expiry/revocation.
+        if (!request.startsWith("REGISTER ")) {
+            send(client, requestId + "|" + safeHandle(request, requestId));
+            return;
+        }
         String cacheKey = client + "|" + requestId;
+        String fingerprint;
+        try {
+            fingerprint = java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(requestBytes));
+        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        synchronized (responseCache) {
         long now = System.currentTimeMillis();
         CachedResponse cached = responseCache.get(cacheKey);
         if (cached != null && now - cached.createdAt < CACHE_TTL_MILLIS) {
-            send(client, cached.payload);
+            send(client, cached.fingerprint.equals(fingerprint) ? cached.payload : requestId + "|REQUEST_CONFLICT");
             return;
         }
-        listener.onRequest(client);
-        String response = requestId + "|" + handler.handleRequest(
-                envelope.substring(separator + 1));
-        responseCache.put(cacheKey, new CachedResponse(response, now));
+        String response = requestId + "|" + safeHandle(request, requestId);
         if (responseCache.size() > 1_000) {
             responseCache.entrySet().removeIf(entry ->
                     now - entry.getValue().createdAt >= CACHE_TTL_MILLIS);
         }
+        if (responseCache.size() < 5_000) responseCache.put(cacheKey, new CachedResponse(response, now, fingerprint));
         send(client, response);
+        }
+    }
+
+    private String safeHandle(String request, String requestId) {
+        try { return handler.handleRequest(request, requestId); }
+        catch (RuntimeException | LinkageError e) {
+            listener.onLog("Internal request error: " + e.getClass().getSimpleName());
+            return "SERVER_ERROR";
+        }
     }
 
     private void send(InetSocketAddress client, String response) {
@@ -126,9 +161,11 @@ public class UdpMailServer implements Closeable {
     private static final class CachedResponse {
         private final String payload;
         private final long createdAt;
-        private CachedResponse(String payload, long createdAt) {
+        private final String fingerprint;
+        private CachedResponse(String payload, long createdAt, String fingerprint) {
             this.payload = payload;
             this.createdAt = createdAt;
+            this.fingerprint = fingerprint;
         }
     }
 }

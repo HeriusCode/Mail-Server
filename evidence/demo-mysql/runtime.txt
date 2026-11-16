@@ -1,0 +1,9 @@
+﻿Demo readiness: source/test implementation ready; deployment MYSQL connection pending valid local credentials.
+Checked at 2026-11-16 20:50:29 +07:00
+Maven BUILD SUCCESS; JUnit62 PASS,0 FAIL,0 ERROR,0 SKIPPED.
+Regression22 PASS,0 FAIL. MYSQL E2E on independent real MySQL test instance passed; not proof of deployment credentials.
+No business source changes or new tests.
+Real storage unchanged:0 files; no migration needed or performed.
+Prepared config/database.local.properties with MYSQL/mail_server_db/mailflow_app; no password entered by agent; file Git-ignored.
+DatabaseTool check exit2: local config incomplete/invalid. Deployment schema/grants and Storage:MySQL startup not verified.
+Existing Server not stopped/restarted; Gmail not sent.

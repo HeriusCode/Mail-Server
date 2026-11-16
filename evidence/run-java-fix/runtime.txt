@@ -1,0 +1,5 @@
+﻿PASS launch.json validates; all runtime classpath entries exist.
+PASS default main opens Swing via classpath JAR: MailServer.MailServer; PID=4068; title=MailFlow Mail Server
+PASS default main opens Swing via classpath JAR: MailClient.MailClient; PID=9372; title=MailFlow Client
+No --start used; existing listener and database were not changed.
+PASS --console compatibility: native exit=0; PING/menu/exit verified; no account or mail created.

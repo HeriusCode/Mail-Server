@@ -1,0 +1,355 @@
+package MailServer;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+
+public class MailStorageService {
+    private static final String SENT_DIRECTORY = ".sent";
+    private static final String CREDENTIAL_FILE = ".credentials";
+    private static final DateTimeFormatter DISPLAY_TIME =
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+    public static final String WELCOME_MESSAGE =
+            "Thank you for using this service. We hope that you will feel comfortable using our email service.";
+
+    private final Path storageRoot;
+    private final JdbcMailRepository repository;
+
+    public MailStorageService() {
+        this(Paths.get("mail_storage"), configuredRepository());
+    }
+
+    public MailStorageService(Path storageRoot) {
+        this(storageRoot, null);
+    }
+
+    public MailStorageService(Path storageRoot, JdbcMailRepository repository) {
+        this.repository = repository;
+        try {
+            this.storageRoot = SafePaths.root(storageRoot, true);
+            if (repository != null) { repository.check(); recoverPending(); }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Unable to create mail storage directory", exception);
+        } catch (java.sql.SQLException exception) {
+            throw new IllegalStateException("Database unavailable or schema missing");
+        }
+    }
+
+    private static JdbcMailRepository configuredRepository() {
+        DatabaseConfig config = DatabaseConfig.load();
+        return config == null ? null : new JdbcMailRepository(config);
+    }
+
+    public boolean usesDatabase() { return repository != null; }
+    public Path storageRoot() { return storageRoot; }
+
+    private Path userPath(String email) throws IOException {
+        if (!isValidEmail(email)) throw new IOException("Invalid account");
+        Path path = storageRoot.resolve(email);
+        if (Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                && (!Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !path.toRealPath().equals(path))) throw new IOException("Unsafe account directory");
+        return path;
+    }
+
+    private Path folder(String email, boolean sent) throws IOException {
+        Path path = userPath(email);
+        if (sent) path = path.resolve(SENT_DIRECTORY);
+        if (Files.exists(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                && (!Files.isDirectory(path, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                || !path.toRealPath().equals(path))) throw new IOException("Unsafe mailbox directory");
+        return path;
+    }
+
+    public static boolean validMailFile(String fileName, boolean sent) {
+        return fileName != null && ((!sent && fileName.equals("new_email.txt"))
+                || fileName.matches((sent ? "sent_" : "mail_") + "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.txt"));
+    }
+
+    /** Durable DB outbox. A conflicting existing file is never overwritten. */
+    public synchronized void recoverPending() throws IOException {
+        if (repository == null) return;
+        try {
+            for (JdbcMailRepository.Entry entry : repository.pending()) {
+                if (!validMailFile(entry.filename(), entry.sent())) throw new IOException("Invalid outbox filename");
+                Path target = folder(entry.owner(), entry.sent());
+                Files.createDirectories(target);
+                writeOnce(target.resolve(entry.filename()), entry.content());
+                repository.markMaterialized(entry);
+            }
+        } catch (java.sql.SQLException e) { throw new StorageUnavailableException(); }
+    }
+
+    private void writeOnce(Path file, String content) throws IOException {
+        if (Files.exists(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    || !file.toRealPath().equals(file) || !Files.readString(file).equals(content))
+                throw new IOException("File conflict; recovery requires operator review");
+            return;
+        }
+        // Stage complete bytes and move without REPLACE_EXISTING. Interrupted staging is ignored.
+        Path temporary = Files.createTempFile(file.getParent(), ".pending-", ".tmp");
+        try {
+            Files.writeString(temporary, content, StandardCharsets.UTF_8);
+            Files.move(temporary, file);
+        } finally { Files.deleteIfExists(temporary); }
+    }
+
+    public static final class StorageUnavailableException extends IllegalStateException {
+        public StorageUnavailableException() { super("Storage unavailable; retry later"); }
+    }
+
+    public synchronized boolean register(String username, String password) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email) || !isValidPassword(password)) return false;
+        Path userDirectory;
+        try {
+            userDirectory = userPath(email);
+            if (Files.exists(userDirectory, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false;
+            String hash = PasswordHasher.hash(password);
+            if (repository != null) {
+                if (!repository.register(email, hash, WELCOME_MESSAGE)) return false;
+                recoverPending();
+                Files.createDirectories(folder(email, true));
+                return true;
+            }
+            Files.createDirectory(userDirectory);
+            try {
+                Files.createDirectory(userDirectory.resolve(SENT_DIRECTORY));
+                Files.writeString(userDirectory.resolve(CREDENTIAL_FILE), hash, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+                Files.writeString(userDirectory.resolve("new_email.txt"), WELCOME_MESSAGE, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+                return true;
+            } catch (IOException e) {
+                // Only remove files this fresh registration created, never legacy data.
+                Files.deleteIfExists(userDirectory.resolve("new_email.txt"));
+                Files.deleteIfExists(userDirectory.resolve(CREDENTIAL_FILE));
+                Files.deleteIfExists(userDirectory.resolve(SENT_DIRECTORY));
+                Files.deleteIfExists(userDirectory);
+                throw e;
+            }
+        } catch (IOException exception) {
+            throw new StorageUnavailableException();
+        } catch (java.sql.SQLException exception) {
+            throw new StorageUnavailableException();
+        }
+    }
+
+    public boolean authenticate(String username, String password) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email) || password == null) return false;
+        Path credentialFile = storageRoot.resolve(email).resolve(CREDENTIAL_FILE);
+        try {
+            if (repository != null) return PasswordHasher.verify(password, repository.passwordHash(email));
+            userPath(email);
+            if (!Files.isRegularFile(credentialFile, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return false;
+            return PasswordHasher.verify(password, Files.readString(credentialFile, StandardCharsets.UTF_8).trim());
+        } catch (java.sql.SQLException e) { throw new StorageUnavailableException();
+        } catch (IOException | IllegalArgumentException exception) {
+            return false;
+        }
+    }
+
+    public List<MailSummary> getMailSummaries(String username) {
+        return getMailSummaries(username, false);
+    }
+
+    public List<MailSummary> getSentSummaries(String username) {
+        return getMailSummaries(username, true);
+    }
+
+    private List<MailSummary> getMailSummaries(String username, boolean sent) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email)) return null;
+        if (repository != null) {
+            try {
+                recoverPending();
+                List<MailSummary> results = new ArrayList<>();
+                for (JdbcMailRepository.Entry entry : repository.entries(email, sent)) {
+                    String subject = extractHeader(entry.content(), "Tiêu đề:");
+                    results.add(new MailSummary(entry.filename(), subject.isEmpty() ? "Welcome" : subject, entry.createdAt().toEpochMilli()));
+                }
+                return results;
+            } catch (java.sql.SQLException | IOException e) { throw new StorageUnavailableException(); }
+        }
+        Path userDirectory;
+        try { userDirectory = userPath(email); folder(email, sent); }
+        catch (IOException e) { return null; }
+        if (!Files.isDirectory(userDirectory)) return null;
+        Path sourceDirectory = sent ? userDirectory.resolve(SENT_DIRECTORY) : userDirectory;
+        if (sent && !Files.exists(sourceDirectory)) {
+            try {
+                Files.createDirectory(sourceDirectory);
+            } catch (IOException exception) {
+                return new ArrayList<>();
+            }
+        }
+
+        List<MailSummary> summaries = new ArrayList<>();
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(sourceDirectory, "*.txt")) {
+            for (Path file : files) {
+                if (!validMailFile(file.getFileName().toString(), sent)
+                        || !Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+                String content = Files.readString(file, StandardCharsets.UTF_8);
+                String subject = extractHeader(content, "Tiêu đề:");
+                if (subject.isEmpty()) subject = "(Không có tiêu đề)";
+                summaries.add(new MailSummary(file.getFileName().toString(), subject,
+                        Files.getLastModifiedTime(file).toMillis()));
+            }
+        } catch (IOException exception) {
+            return null;
+        }
+        summaries.sort(Comparator.comparingLong(MailSummary::getTimestamp).reversed());
+        return summaries;
+    }
+
+    public boolean saveMail(String fromUser, String toUser, String content) {
+        return saveMail(fromUser, toUser, content, UUID.randomUUID().toString());
+    }
+
+    public synchronized boolean saveMail(String fromUser, String toUser, String content, String requestId) {
+        String sender = normalizeEmail(fromUser);
+        String recipient = normalizeEmail(toUser);
+        if (!isValidEmail(sender) || !isValidEmail(recipient)) return false;
+        LocalDateTime now = LocalDateTime.now();
+        String id = UUID.nameUUIDFromBytes((sender + ":" + requestId).getBytes(StandardCharsets.UTF_8)).toString();
+        if (repository != null) {
+            try {
+                String body = content.substring(content.indexOf("\n\n") + 2);
+                if (!repository.saveMail(id, sender, recipient, extractHeader(content, "Tiêu đề:"), body,
+                        addTimestamp(content, "Thời gian nhận", now), addTimestamp(content, "Thời gian gửi", now))) return false;
+                recoverPending();
+                return true;
+            } catch (java.sql.SQLException | IOException e) { throw new StorageUnavailableException(); }
+        }
+        Path senderDirectory, recipientDirectory;
+        try {
+            senderDirectory = userPath(sender); recipientDirectory = userPath(recipient); folder(sender, true);
+        } catch (IOException e) { return false; }
+        if (!Files.isDirectory(senderDirectory) || !Files.isDirectory(recipientDirectory)) return false;
+        // A leftover directory without a known hash is not a registered recipient.
+        Path recipientCredentials = recipientDirectory.resolve(CREDENTIAL_FILE);
+        try {
+            if (!Files.isRegularFile(recipientCredentials, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    || Files.size(recipientCredentials) > 1024
+                    || !PasswordHasher.supported(Files.readString(recipientCredentials, StandardCharsets.UTF_8).trim())) return false;
+        } catch (IOException e) { throw new StorageUnavailableException(); }
+        Path inboxFile = recipientDirectory.resolve("mail_" + id + ".txt");
+        Path sentDirectory = senderDirectory.resolve(SENT_DIRECTORY);
+        Path sentFile = sentDirectory.resolve("sent_" + id + ".txt");
+        try {
+            Files.createDirectories(sentDirectory);
+            if (Files.exists(inboxFile) || Files.exists(sentFile)) {
+                // A retry may complete a missing copy but must match the original payload.
+                String prior = Files.exists(inboxFile) ? readMail(recipient, inboxFile.getFileName().toString())
+                        : readSentMail(sender, sentFile.getFileName().toString());
+                String stripped = prior == null ? "" : prior.replaceFirst("(?m)^Thời gian (nhận|gửi): .*\\n", "");
+                if (!stripped.equals(content)) return false;
+                if (!Files.exists(inboxFile)) writeOnce(inboxFile, addTimestamp(content, "Thời gian nhận", now));
+                if (!Files.exists(sentFile)) writeOnce(sentFile, addTimestamp(content, "Thời gian gửi", now));
+                return true;
+            }
+            Files.writeString(inboxFile, addTimestamp(content, "Thời gian nhận", now),
+                    StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            try {
+                Files.writeString(sentFile, addTimestamp(content, "Thời gian gửi", now),
+                        StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+            } catch (IOException exception) {
+                Files.deleteIfExists(inboxFile);
+                throw exception;
+            }
+            return true;
+        } catch (IOException exception) {
+            return false;
+        }
+    }
+
+    public String readMail(String username, String fileName) {
+        return readMail(username, fileName, false);
+    }
+
+    public String readSentMail(String username, String fileName) {
+        return readMail(username, fileName, true);
+    }
+
+    private String readMail(String username, String fileName, boolean sent) {
+        String email = normalizeEmail(username);
+        if (!isValidEmail(email)) return null;
+        if (!validMailFile(fileName, sent)) return null;
+        if (repository != null) {
+            try {
+                recoverPending();
+                for (JdbcMailRepository.Entry entry : repository.entries(email, sent)) {
+                    if (entry.filename().equals(fileName)) return entry.content();
+                }
+                return null;
+            } catch (java.sql.SQLException | IOException e) { throw new StorageUnavailableException(); }
+        }
+        Path userDirectory;
+        try { userDirectory = userPath(email); folder(email, sent); }
+        catch (IOException e) { return null; }
+        Path sourceDirectory = sent
+                ? userDirectory.resolve(SENT_DIRECTORY).normalize() : userDirectory;
+        Path mailFile = sourceDirectory.resolve(fileName).normalize();
+        if (!mailFile.startsWith(sourceDirectory) || !Files.isRegularFile(mailFile, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return null;
+        try {
+            return Files.readString(mailFile, StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            return null;
+        }
+    }
+
+    private String addTimestamp(String content, String label, LocalDateTime time) {
+        String timestampLine = label + ": " + DISPLAY_TIME.format(time);
+        int bodySeparator = content.indexOf("\n\n");
+        if (bodySeparator < 0) return content + "\n" + timestampLine;
+        return content.substring(0, bodySeparator) + "\n" + timestampLine
+                + content.substring(bodySeparator);
+    }
+
+    private String extractHeader(String content, String header) {
+        for (String line : content.split("\\R")) {
+            if (line.startsWith(header)) return line.substring(header.length()).trim();
+        }
+        return "";
+    }
+
+    public static String normalizeEmail(String username) {
+        return username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+    }
+
+    public static boolean isValidEmail(String email) {
+        return email != null && email.length() <= 254 && email.matches("[a-z0-9._%+-]{1,64}@[a-z0-9-]+(?:\\.[a-z0-9-]+)+");
+    }
+
+    private boolean isValidPassword(String password) {
+        return PasswordHasher.validNewPassword(password);
+    }
+
+    public static final class MailSummary {
+        private final String fileName;
+        private final String subject;
+        private final long timestamp;
+
+        public MailSummary(String fileName, String subject, long timestamp) {
+            this.fileName = fileName;
+            this.subject = subject;
+            this.timestamp = timestamp;
+        }
+
+        public String getFileName() { return fileName; }
+        public String getSubject() { return subject; }
+        public long getTimestamp() { return timestamp; }
+    }
+}

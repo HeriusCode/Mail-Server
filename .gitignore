@@ -10,3 +10,9 @@ mail_storage/
 .idea/
 .vscode/
 *.iml
+
+# Maven and local secrets/backups
+target/
+config/*.local.properties
+backups/
+*.log

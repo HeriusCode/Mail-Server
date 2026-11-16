@@ -62,7 +62,7 @@ public class MailClientGUI extends JFrame {
     private static final Color BORDER = new Color(226, 232, 240);
     private static final Color SUCCESS = new Color(5, 150, 105);
     private static final Color ERROR = new Color(220, 38, 38);
-    private static final String GMAIL_PATTERN = "[a-z0-9._%+-]+@gmail\\.com";
+    private static final String GMAIL_PATTERN = "[a-z0-9._%+-]+@[a-z0-9-]+(?:\\.[a-z0-9-]+)+";
     private static final String PAGE_INBOX = "INBOX";
     private static final String PAGE_COMPOSE = "COMPOSE";
     private static final String PAGE_SENT = "SENT";
@@ -113,9 +113,10 @@ public class MailClientGUI extends JFrame {
 
     private volatile UdpMailClient udpClient;
     private volatile String currentUser = "";
+    private long uiEpoch;
 
     public MailClientGUI() {
-        super("MailFlow UDP Client");
+        super("MailFlow Client");
         buildInterface();
     }
 
@@ -249,7 +250,7 @@ public class MailClientGUI extends JFrame {
 
         c.gridy++;
         c.insets = new Insets(15, 0, 6, 0);
-        card.add(createSmallLabel("TÀI KHOẢN GMAIL"), c);
+        card.add(createSmallLabel("TÀI KHOẢN EMAIL"), c);
         c.gridy++;
         c.insets = new Insets(0, 0, 10, 0);
         styleField(txtUsername);
@@ -489,7 +490,7 @@ public class MailClientGUI extends JFrame {
         composer.add(hint, c);
         c.gridx = 0; c.weightx = 0; c.fill = GridBagConstraints.NONE;
         c.gridy = 1;
-        composer.add(createSmallLabel("Người nhận Gmail"), c);
+        composer.add(createSmallLabel("Người nhận email"), c);
         c.gridx = 1; c.weightx = 1; c.fill = GridBagConstraints.HORIZONTAL;
         styleField(txtToUser);
         txtToUser.setToolTipText("Ví dụ: nguoinhan@gmail.com");
@@ -596,7 +597,7 @@ public class MailClientGUI extends JFrame {
         btnConnect.addActionListener(event -> connectToServer());
         btnRegister.addActionListener(event -> register());
         btnLogin.addActionListener(event -> login());
-        btnRefresh.addActionListener(event -> login());
+        btnRefresh.addActionListener(event -> refreshInbox());
         btnRefreshSent.addActionListener(event -> loadSentHistory());
         btnSend.addActionListener(event -> sendMail());
         btnTogglePassword.addActionListener(event -> {
@@ -670,14 +671,18 @@ public class MailClientGUI extends JFrame {
         if (!validUsername(username)) return;
         String password = readPassword();
         if (!validPassword(password)) return;
+        if (password.getBytes(StandardCharsets.UTF_8).length > 72 || password.indexOf('\0') >= 0) {
+            setStatus("Mật khẩu mới cần ít nhất 6 ký tự và tối đa 72 byte UTF-8", true);
+            return;
+        }
         txtUsername.setText(username);
         requestAsync("REGISTER " + username + " " + encodePassword(password), response -> {
             boolean error = !"REGISTER_SUCCESS".equals(response);
             if (response.startsWith("REGISTER_FAILED")) {
-                setStatus("Tài khoản đã có mật khẩu hoặc thông tin không hợp lệ", true);
+                setStatus("Không thể tạo tài khoản: đã tồn tại hoặc thông tin không hợp lệ", true);
             } else {
                 setStatus(error ? response
-                        : "Tạo tài khoản hoặc thiết lập mật khẩu lần đầu thành công", error);
+                        : "Tạo tài khoản thành công", error);
             }
         });
     }
@@ -690,7 +695,7 @@ public class MailClientGUI extends JFrame {
         txtUsername.setText(username);
         requestAsync("LOGIN " + username + " " + encodePassword(password), response -> {
             if (!response.startsWith("LOGIN_SUCCESS|")) {
-                setStatus("Tài khoản Gmail hoặc mật khẩu không chính xác", true);
+                setStatus("Tài khoản email hoặc mật khẩu không chính xác", true);
                 return;
             }
             updateMailList(response);
@@ -705,8 +710,19 @@ public class MailClientGUI extends JFrame {
 
     private boolean validUsername(String username) {
         if (username.matches(GMAIL_PATTERN)) return true;
-        setStatus("Vui lòng nhập địa chỉ Gmail hợp lệ, ví dụ: tenban@gmail.com", true);
+        setStatus("Nhập email hợp lệ, ví dụ: usera@local.test", true);
         return false;
+    }
+
+    private void refreshInbox() {
+        String owner = currentUser;
+        if (owner.isEmpty()) return;
+        requestAsync("INBOX " + owner, response -> {
+            if (response.startsWith("LOGIN_SUCCESS|")) {
+                updateMailList(response);
+                setStatus("Đã làm mới hộp thư", false);
+            } else setStatus("Không thể tải hộp thư: " + response, true);
+        });
     }
 
     private String normalizeEmail(String value) {
@@ -785,11 +801,11 @@ public class MailClientGUI extends JFrame {
         String subject = txtSubject.getText().trim();
         String content = txtContent.getText();
         if (!validUsername(sender)) {
-            setStatus("Hãy nhập tài khoản Gmail của bạn ở thanh phía trên", true);
+            setStatus("Vui lòng đăng nhập trước", true);
             return;
         }
         if (!recipient.matches(GMAIL_PATTERN)) {
-            setStatus("Người nhận phải là địa chỉ Gmail hợp lệ", true);
+            setStatus("Người nhận phải là địa chỉ email hợp lệ", true);
             return;
         }
         if (subject.isEmpty() || content.trim().isEmpty()) {
@@ -803,11 +819,22 @@ public class MailClientGUI extends JFrame {
         String encoded = Base64.getEncoder().encodeToString(
                 formattedMail.getBytes(StandardCharsets.UTF_8));
         requestAsync("SEND " + recipient + " " + encoded, response -> {
-            boolean error = !"SEND_SUCCESS".equals(response);
-            if (response.startsWith("SEND_FAILED")) {
-                setStatus("Tài khoản người gửi hoặc người nhận chưa đăng ký trên MailServer", true);
+            boolean accepted = "SMTP_ACCEPTED".equals(response) || "SMTP_ACCEPTED_SENT_UNSAVED".equals(response);
+            boolean error = !"SEND_SUCCESS".equals(response) && !accepted;
+            if (response.startsWith("SEND_UNCERTAIN")) {
+                setStatus("Chưa xác định Gmail đã nhận thư hay chưa. Kiểm tra Gmail/Sent; không gửi lại tự động.", true);
+            } else if (response.equals("SMTP_ACCEPTED_SENT_UNSAVED")) {
+                setStatus("SMTP đã chấp nhận thư nhưng chưa lưu được Sent. Không gửi lại; kiểm tra Gmail và quyền lưu trữ Server.", true);
+            } else if (response.startsWith("SEND_FAILED")) {
+                String detail = response.contains("SMTP_NOT_CONFIGURED") ? "Chưa cấu hình SMTP gửi ngoài. Xem config/smtp.example.properties"
+                        : response.contains("SMTP_AUTH_FAILED") ? "SMTP từ chối xác thực. Kiểm tra tài khoản và App Password."
+                        : response.contains("SMTP_TLS_FAILED") ? "Kết nối TLS thất bại. Kiểm tra host, cổng, chứng chỉ và STARTTLS."
+                        : response.contains("SMTP_REJECTED") ? "SMTP từ chối thư hoặc người nhận."
+                        : response.contains("SMTP_TIMEOUT") ? "Hết thời gian kết nối SMTP; thư chưa được gửi."
+                        : "Gửi thất bại: " + response;
+                setStatus(detail, true);
             } else {
-                setStatus(error ? response : "Đã gửi thư tới " + recipient, error);
+                setStatus(error ? response : accepted ? "SMTP đã chấp nhận thư; chưa xác nhận đến Inbox người nhận" : "Đã gửi thư tới " + recipient, error);
             }
             if (!error) {
                 txtSubject.setText("");
@@ -857,6 +884,7 @@ public class MailClientGUI extends JFrame {
     }
 
     private void requestAsync(String request, Consumer<String> onSuccess) {
+        long epoch = uiEpoch;
         UdpMailClient client = udpClient;
         if (client == null || client.isClosed()) {
             setStatus("Hãy kết nối tới UDP MailServer trước", true);
@@ -867,14 +895,24 @@ public class MailClientGUI extends JFrame {
             try {
                 String response = client.sendRequest(request);
                 SwingUtilities.invokeLater(() -> {
+                    if (epoch != uiEpoch || client != udpClient) return;
                     setBusy(false, "Đã nhận phản hồi từ server");
+                    if (response.equals("AUTH_REQUIRED")) {
+                        logout();
+                        setStatus("Phiên đã hết hạn. Vui lòng đăng nhập lại.", true);
+                        return;
+                    }
+                    setConnectionState(true);
                     onSuccess.accept(response);
                 });
             } catch (IOException exception) {
                 SwingUtilities.invokeLater(() -> {
+                    if (epoch != uiEpoch || client != udpClient) return;
                     setBusy(false, "Yêu cầu thất bại");
-                    setStatus(exception.getMessage(), true);
-                    if (client.isClosed()) setConnectionState(false);
+                    setStatus(request.startsWith("SEND ")
+                            ? "Mất phản hồi khi gửi; kết quả chưa rõ. Kiểm tra hộp thư/Sent trước khi gửi lại."
+                            : exception.getMessage(), true);
+                    setConnectionState(false);
                 });
             }
         });
@@ -908,7 +946,14 @@ public class MailClientGUI extends JFrame {
     }
 
     private void logout() {
-        closeConnection();
+        uiEpoch++;
+        UdpMailClient client = udpClient;
+        udpClient = null;
+        if (client != null) networkWorker.submit(() -> {
+            try { client.logout(); } catch (IOException ignored) { }
+            finally { client.close(); }
+        });
+        setBusy(false, "Đã đăng xuất");
         currentUser = "";
         lblSessionUser.setText("Chưa đăng nhập");
         txtUsername.setText("");

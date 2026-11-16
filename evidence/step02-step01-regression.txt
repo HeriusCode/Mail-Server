@@ -1,0 +1,38 @@
+﻿Synthetic fixture root: out\audit\fixtures-8439515983571639993
+Storage: FILE mode; MySQL not configured
+UDP server đang lắng nghe tại 127.0.0.1:51255
+PASS A01 UDP ping | loopback PONG
+REGISTER success
+REGISTER success
+PASS A02 concurrent registration | two independent client sockets
+REGISTER rejected
+PASS A03 duplicate rejected | REGISTER_FAILED
+PASS A04 invalid address rejected | REGISTER_FAILED
+PASS A05 account files | account directory, .sent and new_email.txt exist
+PASS A06 required welcome | compare against required English welcome
+PASS A07 password hashed | credential format PBKDF2 or BCrypt; values withheld
+LOGIN rejected
+PASS A08 wrong password | LOGIN_FAILED
+LOGIN success
+PASS A09 valid login and filenames | LOGIN_SUCCESS with filename/subject/time metadata
+SEND stored
+PASS A10 local delivery | SEND_SUCCESS
+LOGIN success
+PASS A11 mailbox listing | recipient login includes delivered filename
+PASS A12 UTF-8 read and metadata | wire content matches recipient file
+PASS A13 sent copy | SENT_SUCCESS contains sent filename
+PASS A14 unauthenticated read denied | check anonymous READ cannot return content
+PASS A15 credentials inaccessible | check credential file is not served; values withheld
+PASS A16 unauthenticated sent list denied | check anonymous SENT cannot list mail
+PASS A17 sender spoofing denied | check anonymous SEND cannot claim sender a
+PASS A18 traversal denied | normalized path prevents ../ escape
+SEND rejected
+PASS A19 unregistered recipient | no SMTP fallback; SEND_FAILED
+PASS A20 oversized request | client throws IOException before sending
+Storage: FILE mode; MySQL not configured
+UDP server đang lắng nghe tại 127.0.0.1:51255
+LOGIN success
+PASS A21 restart persistence | new server/storage instance reads existing credentials and mail
+PASS A22 disconnected server | PortUnreachableException
+TOTAL PASS=22 FAIL=0
+FAIL denotes an unmet audit expectation; see the matching STEP report for protocol changes.

@@ -1,0 +1,117 @@
+﻿STEP 02 evidence; actual executed tests only.
+STEP 01 regression: TOTAL PASS=22 FAIL=0
+
+--- MailServer.MigrationAndConfigurationTest.txt ---
+-------------------------------------------------------------------------------
+Test set: MailServer.MigrationAndConfigurationTest
+-------------------------------------------------------------------------------
+Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.545 s -- in MailServer.MigrationAndConfigurationTest
+--- MailServer.MigrationAndConfigurationTest-output.txt ---
+PASS storage and migration reject filesystem junction/symlink
+PASS actual refused JDBC connection fails startup; no fallback data written
+PASS incomplete configuration and URL credentials rejected
+PASS migration inspection skips missing/unsupported credentials
+PASS complete backup verified, manifest produced, original data preserved
+PASS backup rerun creates separate backup without overwriting
+PASS backup inside source rejected
+--- MailServer.MySqlIntegrationTest.txt ---
+-------------------------------------------------------------------------------
+Test set: MailServer.MySqlIntegrationTest
+-------------------------------------------------------------------------------
+Tests run: 6, Failures: 0, Errors: 0, Skipped: 6, Time elapsed: 0.002 s -- in MailServer.MySqlIntegrationTest
+--- MailServer.ProcessRestartTest.txt ---
+-------------------------------------------------------------------------------
+Test set: MailServer.ProcessRestartTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.388 s -- in MailServer.ProcessRestartTest
+--- MailServer.ProcessRestartTest-output.txt ---
+PASS real child JVM stopped/restarted; credentials, listing and mail remain readable
+--- MailServer.SecurityRegressionTest.txt ---
+-------------------------------------------------------------------------------
+Test set: MailServer.SecurityRegressionTest
+-------------------------------------------------------------------------------
+Tests run: 8, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 5.518 s -- in MailServer.SecurityRegressionTest
+--- MailServer.SecurityRegressionTest-output.txt ---
+PASS first request stored
+PASS same request retry stored once
+PASS one delivered file
+PASS request ID conflict denied
+PASS credentials survive storage restart
+PASS mail survives storage restart
+PASS disconnected server reported as IOException
+PASS server stopped
+PASS legacy PBKDF2 login supported
+PASS legacy bad password rejected
+PASS unclaimed folder not silently adopted
+PASS unclaimed folder not treated as registered recipient
+PASS existing legacy welcome untouched
+PASS invalid legacy hash rejected
+PASS server stopped
+PASS wrong login
+PASS correct login old caller shape
+PASS internal SEND
+PASS refresh without password
+PASS owner reads UTF8
+PASS own Sent
+PASS other Sent forbidden
+PASS other Inbox forbidden
+PASS other mail forbidden
+PASS own credentials blocked
+PASS path traversal blocked
+PASS authenticated sender spoof blocked
+PASS server stopped
+PASS read before logout
+PASS logout acknowledged
+PASS revoked token replay denied
+PASS expired token denied
+PASS updated client logout clears session
+PASS server stopped
+PASS anonymous READ denied
+PASS anonymous hash denied
+PASS anonymous SENT denied
+PASS anonymous SEND denied
+PASS forged token denied
+PASS token not bound to IP port alone
+PASS token random format
+PASS logs contain no token or password
+PASS server stopped
+PASS unknown txt hidden
+PASS unsafe sent directory fails closed
+PASS filesystem error preserves existing file
+PASS server stopped
+PASS concurrent duplicate exactly one success
+PASS malformed base64 rejected
+PASS request newline rejected
+PASS extra arguments rejected
+PASS oversized client request rejected
+PASS server stopped
+PASS valid registration
+PASS duplicate rejected
+PASS invalid username rejected
+PASS short password rejected
+PASS bcrypt over 72 UTF8 bytes rejected
+PASS welcome exact
+PASS folder confined
+PASS bcrypt cost 12 and no plaintext
+PASS duplicate never overwrites welcome
+PASS server stopped
+--- MailServer.SwingCompatibilityTest.txt ---
+-------------------------------------------------------------------------------
+Test set: MailServer.SwingCompatibilityTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.967 s -- in MailServer.SwingCompatibilityTest
+--- MailServer.SwingCompatibilityTest-output.txt ---
+Storage: FILE mode; MySQL not configured
+UDP server đang lắng nghe tại 127.0.0.1:59001
+LOGIN success
+LOGIN success
+PASS Swing refresh uses session after password cleared
+SEND stored
+PASS two actual Swing clients send/refresh/read through UDP session adapter
+LOGOUT success
+PASS Swing logout clears current account
+--- Legacy inspection (no writes) ---
+No legacy storage directory; nothing to migrate.
+--- Production MySQL connection check ---
+NOT RUN: missing MAIL_DB_URL / MAIL_DB_USER / MAIL_DB_PASSWORD or local config.
+DatabaseTool check exit code: 2 (2 = missing config, NOT RUN)

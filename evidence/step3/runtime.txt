@@ -1,0 +1,38 @@
+﻿STEP 3 automatic verification only; real Gmail delivery NOT VERIFIED
+Verified at 2026-11-16 18:34:18 +07:00
+MailServer.AutomatedEndToEndTest: tests=1, failures=0, errors=0, skipped=0
+MailServer.FileRepositoryTest: tests=3, failures=0, errors=0, skipped=0
+MailServer.GmailGuiStatusTest: tests=1, failures=0, errors=0, skipped=0
+MailServer.GmailSmtpIntegrationTest: tests=14, failures=0, errors=0, skipped=0
+MailServer.ProcessRestartTest: tests=1, failures=0, errors=0, skipped=0
+MailServer.ProtocolHardeningTest: tests=12, failures=0, errors=0, skipped=0
+MailServer.ProtocolIntegrationTest: tests=8, failures=0, errors=0, skipped=0
+MailServer.SecurityRegressionTest: tests=8, failures=0, errors=0, skipped=0
+MailServer.SwingCompatibilityTest: tests=1, failures=0, errors=0, skipped=0
+MailServer.SwingEndToEndTest: tests=1, failures=0, errors=0, skipped=0
+Full JUnit: 50 PASS /0 FAIL /0 ERROR /0 SKIPPED
+Regression:22 PASS /0 FAIL
+Changed production files: ClientHandler.java, SmtpSettings.java, MailDeliveryService.java, MailClientGUI.java
+LocalSmtpServer, Pop3Server, TcpMailListener and repositories unchanged.
+Real storage unchanged. No actual SMTP credentials read or local secret file created by agent.
+TLS test trust is confined to separate child JVMs; Windows/JDK trust stores were not modified.
+--- GmailSmtpIntegrationTest ---
+PASS TLS fail-closed: no-starttls, trust=true, hostname=localhost; zero AUTH/DATA
+PASS Gmail 587 STARTTLS /465 TLS config, auth required, From=user, strict flags, hostname verification and isolated precedence
+PASS TLS fail-closed: accept, trust=false, hostname=localhost; zero AUTH/DATA
+PASS greeting-timeout: SEND_FAILED: SMTP_TIMEOUT; no false Sent and same-ID retry does not resubmit
+PASS reject: SEND_FAILED: SMTP_REJECTED; no false Sent and same-ID retry does not resubmit
+PASS data-timeout: SEND_UNCERTAIN: SMTP_TIMEOUT; no false Sent and same-ID retry does not resubmit
+PASS data-drop: SEND_UNCERTAIN: SMTP_DELIVERY_UNCERTAIN; no false Sent and same-ID retry does not resubmit
+PASS TLS fail-closed: accept, trust=true, hostname=127.0.0.1; zero AUTH/DATA
+PASS real STARTTLS + AUTH, UTF-8, envelope/From/Reply-To, accept, Sent=false, same-ID retry submitted once
+PASS real STARTTLS + AUTH, UTF-8, envelope/From/Reply-To, quit-drop, Sent=true, same-ID retry submitted once
+PASS real implicit TLS + AUTH, UTF-8, envelope/From/Reply-To, accept, Sent=true, same-ID retry submitted once
+PASS real STARTTLS + AUTH, UTF-8, envelope/From/Reply-To, accept, Sent=true, same-ID retry submitted once
+PASS auth-reject: SEND_FAILED: SMTP_AUTH_FAILED; no false Sent and same-ID retry does not resubmit
+PASS data-reject: SEND_FAILED: SMTP_REJECTED; no false Sent and same-ID retry does not resubmit
+--- GmailGuiStatusTest ---
+PASS Swing SMTP statuses: acceptance vs Gmail delivery, Sent failure, uncertain timeout, auth/TLS/rejection/pre-send timeout, local success; one submission each
+Two early mock-fixture errors are preserved in initial-test-fixture-errors.txt and certificate-fixture-socket-error.txt; no tests removed or skipped.
+Pending: manual App Password setup and explicit real-send/Inbox-Spam verification. SMTP acceptance is not Gmail receipt.
+Original Server unchanged: PID=19872; started=2026-11-16T17:18:54.0261540+07:00; still owns UDP5000/TCP2525/TCP1110; not restarted.

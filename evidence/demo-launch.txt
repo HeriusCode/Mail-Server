@@ -1,0 +1,8 @@
+﻿PASS: server window and two client windows launched.
+PASS: UDP 127.0.0.1:5000 returned a matching request ID and PONG.
+PASS: SMTP 127.0.0.1:2525 returned the MailFlow SMTP greeting.
+PASS: POP3 127.0.0.1:1110 returned the MailFlow POP3 greeting.
+Window PID=312736; title=MailFlow Mail Server
+Window PID=301488; title=MailFlow Client
+Window PID=325720; title=MailFlow Client
+No accounts were created or real emails sent by this launcher.

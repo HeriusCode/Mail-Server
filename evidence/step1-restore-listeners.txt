@@ -1,0 +1,5 @@
+﻿PASS UDP 127.0.0.1:5000 matching-ID PONG
+PASS TCP 127.0.0.1:2525 220 localhost MailFlow SMTP ready
+PASS TCP 127.0.0.1:1110 +OK MailFlow POP3 ready
+Server PID=19872; console background; remains running
+GUI windows require manual launch; no user accounts or mail created by listener probe

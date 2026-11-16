@@ -1,0 +1,66 @@
+﻿STEP 4 MYSQL backend integration; real MySQL tested on a separate private instance, not MySQL80 application database.
+Verified 2026-11-16 19:58:53 +07:00
+MailServer.AutomatedEndToEndTest: tests=1 fail=0 errors=0 skipped=0
+MailServer.DatabaseConfigurationTest: tests=3 fail=0 errors=0 skipped=0
+MailServer.FileRepositoryTest: tests=3 fail=0 errors=0 skipped=0
+MailServer.GmailGuiStatusTest: tests=1 fail=0 errors=0 skipped=0
+MailServer.GmailSmtpIntegrationTest: tests=14 fail=0 errors=0 skipped=0
+MailServer.MySqlBackendIntegrationTest: tests=9 fail=0 errors=0 skipped=0
+MailServer.ProcessRestartTest: tests=1 fail=0 errors=0 skipped=0
+MailServer.ProtocolHardeningTest: tests=12 fail=0 errors=0 skipped=0
+MailServer.ProtocolIntegrationTest: tests=8 fail=0 errors=0 skipped=0
+MailServer.SecurityRegressionTest: tests=8 fail=0 errors=0 skipped=0
+MailServer.SwingCompatibilityTest: tests=1 fail=0 errors=0 skipped=0
+MailServer.SwingEndToEndTest: tests=1 fail=0 errors=0 skipped=0
+Full JUnit=62 PASS/0 FAIL/0 ERROR/0 SKIPPED; MySQL integration=9 PASS, File E2E retained.
+Regression=22 PASS/0 FAIL
+Real mail_storage unchanged. Config/storage/source backup=backups/step4-20261116-d3f856d1.
+No real migration, no automatic schema/user/privilege changes on MySQL80; FILE remains default.
+--- MySqlBackendIntegrationTest ---
+PASS private real MySQL started on loopback port 61437; independent datadir=C:\Users\NGUYEN~1\AppData\Local\Temp\mailflow-mysql-test-5268029362216878404; separate application user
+PASS MySQL external Sent persistence/conflict without external SMTP; partial archive transaction rolls back
+PASS real TCP SMTP->MySQL->POP3 UTF-8; DELE/RSET/QUIT archive in DB with bytes preserved
+SMTP listening 127.0.0.1:61482
+POP3 listening 127.0.0.1:61483
+Storage: MySQL repositories
+UDP server đang lắng nghe tại 127.0.0.1:56255
+REGISTER success
+LOGIN success
+REGISTER success
+LOGIN success
+SEND stored locally
+SEND stored locally
+LOGOUT success
+LOGOUT success
+PASS two real Swing Clients -> UDP -> MYSQL repositories: registration/login, two-way Compose/Inbox/Sent and logout
+PASS real MySQL connection/schema/utf8mb4; dedicated app user cannot CREATE tables
+PASS MYSQL backend selected by config in actual Server JVM; UDP registration/login/two-way mail/security/logout, graceful JVM restart retains both Inbox/Sent
+PASS MySQL A->B/B->A, UTF-8 emoji, Inbox/Sent, concurrent retry once, conflicting request rejected and fresh repository restart
+PASS migration dry-run counts, verified backup, unchanged hash/source, import rerun zero duplicates and conflicting content never overwritten
+PASS MySQL registration/login/BCrypt/welcome; duplicate welcome rolls back user transaction; hash never served
+PASS actual MySQL disconnect fails closed with no FILE fallback; real mysqld restart retains accounts/mail
+PASS private MySQL stopped; datadir retained, no user database/service touched
+--- DatabaseConfigurationTest ---
+PASS offline migration dry-run preserves all source bytes and refuses backup inside source
+PASS default FILE independent of DB config; MYSQL connection failure does not silently write to FILE
+PASS DB root/URL secrets/unsafe options rejected; isolated local config and environment precedence
+--- AutomatedEndToEndTest ---
+E2E child ready: UDP=51365, SMTP=60691, POP3=60692; fixture=target\automated-e2e-691124944681562008
+PASS E2E startup, UDP/SMTP/POP3, 8 concurrent clients, malformed/anonymous rejection
+PASS E2E registration, duplicates/invalid input, welcome, BCrypt, login and sessions
+PASS E2E A->B and B->A exact content/headers/timestamps, Inbox/Sent refresh, retry once, isolation/spoof/hash/traversal, logout/replay
+PASS E2E real TCP SMTP EHLO/AUTH/MAIL/RCPT/DATA/QUIT -> file -> POP3 USER/PASS/STAT/LIST/UIDL/RETR/QUIT
+PASS E2E graceful shutdown; child stderr empty
+E2E child ready: UDP=54903, SMTP=60714, POP3=60715; fixture=target\automated-e2e-691124944681562008
+PASS E2E graceful shutdown; child stderr empty
+PASS E2E full child JVM graceful restart: both users, Inbox/Sent and every stored byte preserved
+--- SwingEndToEndTest ---
+E2E child ready: UDP=56268, SMTP=57714, POP3=57715; fixture=target\swing-e2e-4161119496767089376
+PASS Swing E2E: two visible displayable windows; EDT registration/login, Compose both directions, Inbox/Sent content, Logout clears mailboxes
+Visual aesthetics, occlusion and physical mouse/keyboard interaction were NOT evaluated
+PASS E2E graceful shutdown; child stderr empty
+Driver:mysql-connector-j 9.7.0 from existing Maven cache; private test mysqld 8.0.29; app user has only SELECT/INSERT/UPDATE.
+Historical schema/JDBC/migration code reused; transactionally authoritative DB records in MYSQL mode, file backend unchanged.
+MySQL test init/startup fixture issues preserved in initial-fixture-startup-error.txt/private-startup-timeout.txt/mysql-diagnostic.txt; all final tests pass.
+Existing MySQL80 state=Running; PID=5768; no service configuration changed.
+Existing mail listener PID=19872; started=2026-11-16T17:18:54.0261540+07:00; MailFlow=True; no restart/backend switch performed.

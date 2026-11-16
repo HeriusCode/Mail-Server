@@ -1,0 +1,63 @@
+SMTP S: 220 localhost MailFlow SMTP ready
+SMTP C: EHLO localhost
+SMTP S: 250-localhost
+SMTP S: 250-AUTH PLAIN
+SMTP S: 250 SIZE 128000
+SMTP C: AUTH PLAIN [REDACTED]
+SMTP S: 235 Authentication successful
+SMTP C: MAIL FROM:<step2.a@local.test>
+SMTP S: 250 Sender accepted
+SMTP C: RCPT TO:<step2.b@local.test>
+SMTP S: 250 Recipient accepted
+SMTP C: DATA
+SMTP S: 354 End with <CRLF>.<CRLF>
+SMTP C: Date: Tue, 17 Nov 2026 02:03:37 +0700 (ICT)
+SMTP C: From: step2.a@local.test
+SMTP C: To: step2.b@local.test
+SMTP C: Message-ID: <893523498.0.1794855817008@localhost>
+SMTP C: Subject: =?UTF-8?Q?STEP2_Ti=E1=BA=BFng_Vi=E1=BB=87t_UTF-8?=
+SMTP C: MIME-Version: 1.0
+SMTP C: Content-Type: text/plain; charset=UTF-8
+SMTP C: Content-Transfer-Encoding: quoted-printable
+SMTP C: 
+SMTP C: Xin ch=C3=A0o Vi=E1=BB=87t Nam.
+SMTP C: ..d=C3=B2ng b=E1=BA=AFt =C4=91=E1=BA=A7u d=E1=BA=A5u ch=E1=BA=A5m
+SMTP C: ...hai d=E1=BA=A5u ch=E1=BA=A5m
+SMTP C: .
+SMTP S: 250 Stored locally
+SMTP C: QUIT
+SMTP S: 221 Bye
+POP3 S: +OK MailFlow POP3 ready
+POP3 C: USER step2.b@local.test
+POP3 S: +OK Send PASS
+POP3 C: PASS [REDACTED]
+POP3 S: +OK Maildrop ready
+POP3 C: STAT
+POP3 S: +OK 2 833
+POP3 C: LIST
+POP3 S: +OK Listing
+POP3 S: 1 474
+POP3 S: 2 359
+POP3 S: .
+POP3 C: UIDL
+POP3 S: +OK Listing
+POP3 S: 1 mail_44c5afc6-74e9-3dac-be64-8da974823f80.txt
+POP3 S: 2 new_email.txt
+POP3 S: .
+POP3 C: RETR 1
+POP3 S: +OK 474 octets
+POP3 S: Date: Tue, 17 Nov 2026 02:03:37 +0700 (ICT)
+POP3 S: From: step2.a@local.test
+POP3 S: To: step2.b@local.test
+POP3 S: Message-ID: <mail_44c5afc6-74e9-3dac-be64-8da974823f80.txt.step2.b@local.test>
+POP3 S: Subject: =?UTF-8?Q?STEP2_Ti=E1=BA=BFng_Vi=E1=BB=87t_UTF-8?=
+POP3 S: MIME-Version: 1.0
+POP3 S: Content-Type: text/plain; charset=UTF-8
+POP3 S: Content-Transfer-Encoding: quoted-printable
+POP3 S: 
+POP3 S: Xin ch=C3=A0o Vi=E1=BB=87t Nam.
+POP3 S: ..d=C3=B2ng b=E1=BA=AFt =C4=91=E1=BA=A7u d=E1=BA=A5u ch=E1=BA=A5m
+POP3 S: ...hai d=E1=BA=A5u ch=E1=BA=A5m
+POP3 S: .
+POP3 C: QUIT
+POP3 S: +OK Bye

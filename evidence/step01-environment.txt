@@ -1,0 +1,22 @@
+﻿Audit date: 2026-11-03 Asia/Saigon
+java version "23" 2024-09-17
+Java(TM) SE Runtime Environment (build 23+37-2369)
+Java HotSpot(TM) 64-Bit Server VM (build 23+37-2369, mixed mode, sharing)
+javac 23
+Apache Maven 3.9.16 (2bdd9fddda4b155ebf8000e807eb73fd829a51d5)
+Maven home: E:\tool java\apache-maven-3.9.16
+Java version: 23, vendor: Oracle Corporation, runtime: C:\Program Files\Java\jdk-23
+Default locale: en_US, platform encoding: UTF-8
+OS name: "windows 11", version: "10.0", arch: "amd64", family: "windows"
+VS Code CLI observed: 1.144.0 x64; crashpad Access denied warning
+
+
+Name   : MySQL80
+Status : Running
+
+
+
+
+C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe  Ver 8.0.29 for Win64 on x86_64 (MySQL Community Server - GPL)
+MySQL TCP 127.0.0.1:3306 reachable; SQL authentication/schema NOT tested
+CIM Win32_Service PathName: Access denied in sandbox; mysql.exe not on PATH

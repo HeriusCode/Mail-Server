@@ -1,128 +1,121 @@
 package MailServer;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.List;
 import java.util.StringJoiner;
+import java.util.UUID;
 
-/** Xử lý một lệnh mail độc lập với tầng vận chuyển UDP. */
+/** Protocol boundary: identity fields must agree with the server session. */
 public class ClientHandler {
     public interface Listener { void onLog(String message); }
-
-    private static final Listener CONSOLE_LISTENER = System.out::println;
-    private final MailStorageService storageService;
+    private final MailStorageService storage;
     private final Listener listener;
-
-    public ClientHandler(MailStorageService storageService) {
-        this(storageService, CONSOLE_LISTENER);
+    private final SessionManager sessions;
+    private final MailDeliveryService delivery;
+    public ClientHandler(MailStorageService storage) { this(storage, System.out::println); }
+    public ClientHandler(MailStorageService storage, Listener listener) {
+        this(storage, listener, new SessionManager());
     }
-
-    public ClientHandler(MailStorageService storageService, Listener listener) {
-        this.storageService = storageService;
-        this.listener = listener == null ? CONSOLE_LISTENER : listener;
+    public ClientHandler(MailStorageService storage, Listener listener, SessionManager sessions) {
+        this.storage = storage; this.listener = listener == null ? message -> { } : listener;
+        this.sessions = sessions;
+        this.delivery = MailDeliveryService.configured(storage, this.listener::onLog);
     }
-
-    public String handleRequest(String request) {
-        String[] parts = request.trim().split(" ", 3);
-        if (parts.length == 0 || parts[0].isEmpty()) return "INVALID_COMMAND";
-        switch (parts[0]) {
-            case "PING": return "PONG";
-            case "REGISTER": return handleRegister(parts);
-            case "LOGIN": return handleLogin(parts);
-            case "SENT": return handleSent(parts);
-            case "SEND": return handleSend(parts);
-            case "READ": return handleRead(parts, false);
-            case "READ_SENT": return handleRead(parts, true);
-            default: return "INVALID_COMMAND";
-        }
+    public String handleRequest(String request) { return handleRequest(request, UUID.randomUUID().toString()); }
+    public String handleRequest(String request, String requestId) {
+        if (request == null || request.length() > 59960 || request.isEmpty()
+                || request.chars().anyMatch(c -> c < 32 || c == 127)) return "INVALID_COMMAND";
+        try {
+            if (request.equals("PING")) return "PONG";
+            String[] parts = request.split(" ", -1);
+            if (parts[0].equals("REGISTER") || parts[0].equals("LOGIN")) {
+                if (parts.length != 3) return "INVALID_COMMAND";
+                String owner = MailStorageService.normalizeEmail(parts[1]);
+                String password = decode(parts[2], 512);
+                if (!MailStorageService.isValidEmail(owner) || password == null)
+                    return parts[0].equals("REGISTER") ? "REGISTER_FAILED: Invalid input" : "LOGIN_FAILED: Invalid credentials";
+                if (parts[0].equals("REGISTER")) {
+                    if (!PasswordHasher.validNewPassword(password)) return "REGISTER_FAILED: Invalid password (6 characters to 72 UTF-8 bytes)";
+                    boolean ok = storage.register(owner, password);
+                    listener.onLog(ok ? "REGISTER success" : "REGISTER rejected");
+                    return ok ? "REGISTER_SUCCESS" : "REGISTER_FAILED: Account unavailable";
+                }
+                if (!storage.authenticate(owner, password)) {
+                    listener.onLog("LOGIN rejected"); return "LOGIN_FAILED: Invalid credentials";
+                }
+                List<MailSummary> mails = storage.getMailSummaries(owner);
+                if (mails == null) return "STORAGE_UNAVAILABLE";
+                String token = sessions.create(owner);
+                listener.onLog("LOGIN success");
+                return "LOGIN_SUCCESS|" + token + "|" + summaries(mails);
+            }
+            if (!parts[0].equals("AUTH") || parts.length < 3) return "AUTH_REQUIRED";
+            String owner = sessions.owner(parts[1]);
+            if (owner == null) return "AUTH_REQUIRED";
+            String command = parts[2];
+            if (command.equals("LOGOUT") && parts.length == 3) {
+                sessions.revoke(parts[1]); listener.onLog("LOGOUT success"); return "LOGOUT_SUCCESS";
+            }
+            if (command.equals("INBOX") || command.equals("SENT")) {
+                if (parts.length != 4) return "INVALID_COMMAND";
+                if (!owner.equals(MailStorageService.normalizeEmail(parts[3]))) return "FORBIDDEN";
+                List<MailSummary> mails = command.equals("SENT")
+                        ? storage.getSentSummaries(owner) : storage.getMailSummaries(owner);
+                if (mails == null) return "STORAGE_UNAVAILABLE";
+                return (command.equals("SENT") ? "SENT_SUCCESS|" : "LOGIN_SUCCESS|") + summaries(mails);
+            }
+            if (command.equals("READ") || command.equals("READ_SENT")) {
+                if (parts.length != 5) return "INVALID_COMMAND";
+                if (!owner.equals(MailStorageService.normalizeEmail(parts[3]))) return "FORBIDDEN";
+                String content = command.equals("READ_SENT") ? storage.readSentMail(owner, parts[4]) : storage.readMail(owner, parts[4]);
+                return content == null ? "READ_FAILED: Mail not found" : "MAIL_CONTENT|" + encode(content);
+            }
+            if (command.equals("SEND")) {
+                if (parts.length != 5) return "INVALID_COMMAND";
+                String recipient = MailStorageService.normalizeEmail(parts[3]);
+                if (!MailStorageService.isValidEmail(recipient)) return "SEND_FAILED: Invalid recipient";
+                String raw = decode(parts[4], 44000);
+                if (raw == null) return "INVALID_COMMAND";
+                int separator = raw.indexOf("\n\n");
+                if (separator < 0) return "INVALID_COMMAND";
+                String[] headers = raw.substring(0, separator).split("\n", -1);
+                String senderPrefix = "Người gửi: ", receiverPrefix = "Người nhận: ", subjectPrefix = "Tiêu đề: ";
+                if (headers.length != 3 || !headers[0].startsWith(senderPrefix)
+                        || !headers[1].startsWith(receiverPrefix) || !headers[2].startsWith(subjectPrefix)) return "INVALID_COMMAND";
+                if (!owner.equals(MailStorageService.normalizeEmail(headers[0].substring(senderPrefix.length())))
+                        || !recipient.equals(MailStorageService.normalizeEmail(headers[1].substring(receiverPrefix.length())))) return "FORBIDDEN";
+                String subject = headers[2].substring(subjectPrefix.length()).trim();
+                String body = raw.substring(separator + 2);
+                if (subject.isEmpty() || subject.length() > 998 || subject.indexOf('\r') >= 0 || body.isBlank()) return "INVALID_COMMAND";
+                String content = senderPrefix + owner + "\n" + receiverPrefix + recipient + "\n" + subjectPrefix + subject + "\n\n" + body;
+                String result = delivery.send(owner, recipient, content, requestId);
+                listener.onLog(result.startsWith("SMTP_ACCEPTED") ? "SMTP relay accepted message" : result.equals("SEND_SUCCESS") ? "SEND stored locally" : result.startsWith("SEND_UNCERTAIN") ? "SMTP delivery uncertain; no automatic resubmission" : "SEND rejected");
+                return result;
+            }
+            return "INVALID_COMMAND";
+        } catch (MailStorageService.StorageUnavailableException e) {
+            listener.onLog("Storage unavailable; operation not confirmed"); return "STORAGE_UNAVAILABLE";
+        } catch (IllegalArgumentException e) { return "INVALID_COMMAND";
+        } catch (IllegalStateException e) { return "SERVER_BUSY"; }
     }
-
-    private String handleRegister(String[] parts) {
-        if (parts.length != 3) return "INVALID_COMMAND";
-        String password = decodePassword(parts[2]);
-        if (password == null) return "REGISTER_FAILED: Invalid password";
-        boolean registered = storageService.register(parts[1], password);
-        listener.onLog("REGISTER " + parts[1] + ": "
-                + (registered ? "đã tạo tài khoản" : "thất bại hoặc đã tồn tại"));
-        return registered ? "REGISTER_SUCCESS" : "REGISTER_FAILED: User already exists";
-    }
-
-    private String handleLogin(String[] parts) {
-        if (parts.length != 3) return "INVALID_COMMAND";
-        String password = decodePassword(parts[2]);
-        if (password == null || !storageService.authenticate(parts[1], password)) {
-            listener.onLog("LOGIN " + parts[1] + ": sai tài khoản hoặc mật khẩu");
-            return "LOGIN_FAILED: Invalid email or password";
-        }
-        List<MailStorageService.MailSummary> mails =
-                storageService.getMailSummaries(parts[1]);
-        if (mails == null) {
-            listener.onLog("LOGIN " + parts[1] + ": không tìm thấy tài khoản");
-            return "LOGIN_FAILED: User not found";
-        }
-        listener.onLog("LOGIN " + parts[1] + ": thành công");
-        return serializeSummaries("LOGIN_SUCCESS|", mails);
-    }
-
-    private String handleSent(String[] parts) {
-        if (parts.length != 2) return "INVALID_COMMAND";
-        List<MailStorageService.MailSummary> mails =
-                storageService.getSentSummaries(parts[1]);
-        if (mails == null) return "SENT_FAILED: User not found";
-        listener.onLog("SENT " + parts[1] + ": " + mails.size() + " thư");
-        return serializeSummaries("SENT_SUCCESS|", mails);
-    }
-
-    private String serializeSummaries(String prefix,
-            List<MailStorageService.MailSummary> mails) {
+    private static String summaries(List<MailSummary> mails) {
         StringJoiner entries = new StringJoiner(",");
-        for (MailStorageService.MailSummary mail : mails) {
-            String encodedSubject = Base64.getEncoder().encodeToString(
-                    mail.getSubject().getBytes(StandardCharsets.UTF_8));
-            entries.add(mail.getFileName() + ";" + encodedSubject + ";"
-                    + mail.getTimestamp());
-        }
-        return prefix + entries;
+        for (MailSummary mail : mails)
+            entries.add(mail.getFileName() + ";" + encode(mail.getSubject()) + ";" + mail.getTimestamp());
+        return entries.toString();
     }
-
-    private String handleSend(String[] parts) {
-        if (parts.length != 3) return "INVALID_COMMAND";
-        String content;
+    private static String encode(String value) { return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8)); }
+    private static String decode(String value, int maxBytes) {
+        if (value.length() > (maxBytes + 2) / 3 * 4) return null;
         try {
-            content = new String(Base64.getDecoder().decode(parts[2]), StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException exception) {
-            return "INVALID_COMMAND: Invalid Base64 content";
-        }
-        String sender = extractHeader(content, "Người gửi:");
-        boolean saved = storageService.saveMail(sender, parts[1], content);
-        listener.onLog("SEND từ " + sender + " tới " + parts[1] + ": "
-                + (saved ? "đã lưu thư" : "tài khoản không hợp lệ"));
-        return saved ? "SEND_SUCCESS" : "SEND_FAILED: Sender or recipient not found";
-    }
-
-    private String handleRead(String[] parts, boolean sent) {
-        if (parts.length != 3) return "INVALID_COMMAND";
-        String content = sent
-                ? storageService.readSentMail(parts[1], parts[2])
-                : storageService.readMail(parts[1], parts[2]);
-        if (content == null) return "READ_FAILED: Mail not found";
-        return "MAIL_CONTENT|" + Base64.getEncoder().encodeToString(
-                content.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private String extractHeader(String content, String header) {
-        for (String line : content.split("\\R")) {
-            if (line.startsWith(header)) return line.substring(header.length()).trim();
-        }
-        return "";
-    }
-
-    private String decodePassword(String encodedPassword) {
-        try {
-            return new String(Base64.getDecoder().decode(encodedPassword),
-                    StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException exception) {
-            return null;
-        }
+            byte[] bytes = Base64.getDecoder().decode(value);
+            if (bytes.length > maxBytes) return null;
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString();
+        } catch (IllegalArgumentException | CharacterCodingException e) { return null; }
     }
 }

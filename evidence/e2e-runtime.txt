@@ -1,0 +1,32 @@
+﻿MailFlow automated E2E verification
+Verified at: 2026-11-16 17:36:03 +07:00
+MailServer.AutomatedEndToEndTest: tests=1 failures=0 errors=0 skipped=0
+MailServer.FileRepositoryTest: tests=3 failures=0 errors=0 skipped=0
+MailServer.ProcessRestartTest: tests=1 failures=0 errors=0 skipped=0
+MailServer.ProtocolIntegrationTest: tests=8 failures=0 errors=0 skipped=0
+MailServer.SecurityRegressionTest: tests=8 failures=0 errors=0 skipped=0
+MailServer.SwingCompatibilityTest: tests=1 failures=0 errors=0 skipped=0
+MailServer.SwingEndToEndTest: tests=1 failures=0 errors=0 skipped=0
+Full JUnit: 23 PASS / 0 FAIL / 0 ERROR / 0 SKIPPED
+Regression: 22 PASS / 0 FAIL
+Focused E2E run: 2 PASS; subsequently included in full JUnit. Unique checks=45; executions=47.
+Business source hashes unchanged: 27
+Real mail_storage unchanged; test data confined to unique target/out fixtures.
+--- MailServer.AutomatedEndToEndTest ---
+E2E child ready: UDP=61657, SMTP=53787, POP3=53788; fixture=target\automated-e2e-18078177495216314865
+PASS E2E startup, UDP/SMTP/POP3, 8 concurrent clients, malformed/anonymous rejection
+PASS E2E registration, duplicates/invalid input, welcome, BCrypt, login and sessions
+PASS E2E A->B and B->A exact content/headers/timestamps, Inbox/Sent refresh, retry once, isolation/spoof/hash/traversal, logout/replay
+PASS E2E real TCP SMTP EHLO/AUTH/MAIL/RCPT/DATA/QUIT -> file -> POP3 USER/PASS/STAT/LIST/UIDL/RETR/QUIT
+PASS E2E graceful shutdown; child stderr empty
+E2E child ready: UDP=55882, SMTP=58354, POP3=58355; fixture=target\automated-e2e-18078177495216314865
+PASS E2E graceful shutdown; child stderr empty
+PASS E2E full child JVM graceful restart: both users, Inbox/Sent and every stored byte preserved
+--- MailServer.SwingEndToEndTest ---
+E2E child ready: UDP=54808, SMTP=54036, POP3=54037; fixture=target\swing-e2e-8640692672352994957
+PASS Swing E2E: two visible displayable windows; EDT registration/login, Compose both directions, Inbox/Sent content, Logout clears mailboxes
+Visual aesthetics, occlusion and physical mouse/keyboard interaction were NOT evaluated
+PASS E2E graceful shutdown; child stderr empty
+No MySQL, Gmail or external SMTP delivery performed.
+Visible Swing component automation passed; visual aesthetics and physical input not evaluated.
+Original server unchanged: PID=19872; started=2026-11-16T17:18:54.0261540+07:00; still owns UDP5000/TCP2525/TCP1110

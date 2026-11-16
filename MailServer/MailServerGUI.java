@@ -44,7 +44,7 @@ public class MailServerGUI extends JFrame {
     private static final Color BORDER = new Color(226, 232, 240);
     private static final Color SUCCESS = new Color(5, 150, 105);
     private static final Color ERROR = new Color(220, 38, 38);
-    private static final String DEFAULT_BIND_HOST = "0.0.0.0";
+    private static final String DEFAULT_BIND_HOST = "127.0.0.1";
     private static final int DEFAULT_PORT = 5000;
 
     private final JTextField txtBindHost = new JTextField(DEFAULT_BIND_HOST, 11);
@@ -56,16 +56,16 @@ public class MailServerGUI extends JFrame {
     private final JLabel lblStatus = new JLabel("● OFFLINE");
     private final JLabel lblClientMetric = new JLabel("0");
     private final JLabel lblRequestMetric = new JLabel("0");
-    private final JLabel lblProtocolMetric = new JLabel("UDP");
+    private final JLabel lblProtocolMetric = new JLabel("UDP / SMTP / POP3");
     private final JTextArea txtLog = new JTextArea();
     private final Set<InetSocketAddress> knownClients = ConcurrentHashMap.newKeySet();
     private final AtomicInteger requestCount = new AtomicInteger();
 
-    private volatile UdpMailServer udpServer;
+    private volatile MailServerRuntime udpServer;
     private volatile boolean running;
 
     public MailServerGUI() {
-        super("MailFlow UDP Server");
+        super("MailFlow Mail Server");
         buildInterface();
     }
 
@@ -181,7 +181,7 @@ public class MailServerGUI extends JFrame {
         metrics.add(createMetricCard("CLIENT ĐÃ GHI NHẬN", lblClientMetric,
                 new Color(59, 130, 246), "Địa chỉ IP:port duy nhất"));
         metrics.add(createMetricCard("YÊU CẦU ĐÃ XỬ LÝ", lblRequestMetric,
-                new Color(139, 92, 246), "Không tính gói retry trùng"));
+                new Color(139, 92, 246), "Tổng gói có request ID hợp lệ"));
         metrics.add(createMetricCard("GIAO THỨC", lblProtocolMetric,
                 SUCCESS, "Datagram • tối đa 60 KB"));
         top.add(metrics, BorderLayout.CENTER);
@@ -301,15 +301,17 @@ public class MailServerGUI extends JFrame {
             }
             @Override public void onLog(String message) { appendLog(message); }
         };
-        try (UdpMailServer server = new UdpMailServer(host, port,
+        try (MailServerRuntime server = new MailServerRuntime(host, port,
                 new MailStorageService(), listener)) {
             if (!running) {
                 return;
             }
             udpServer = server;
             server.run();
+        } catch (IllegalStateException exception) {
+            appendLog("Không thể khởi động: " + exception.getMessage());
         } catch (IOException exception) {
-            if (running) appendLog("Không thể chạy UDP server: " + exception.getMessage());
+            if (running) appendLog("Không thể mở cổng giao thức: " + readableMessage(exception));
         } finally {
             udpServer = null;
             running = false;
@@ -318,9 +320,16 @@ public class MailServerGUI extends JFrame {
         }
     }
 
+    private static String readableMessage(Throwable error) {
+        Throwable current=error;
+        while(current.getCause()!=null) current=current.getCause();
+        String message=current.getMessage();
+        return message==null || message.isBlank()?current.getClass().getSimpleName():message;
+    }
+
     private void stopServer() {
         running = false;
-        UdpMailServer server = udpServer;
+        MailServerRuntime server = udpServer;
         if (server != null) {
             appendLog("Đang dừng UDP server...");
             server.close();
@@ -418,6 +427,10 @@ public class MailServerGUI extends JFrame {
     public static void main(String[] args) {
         try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
         catch (Exception ignored) { }
-        SwingUtilities.invokeLater(() -> new MailServerGUI().setVisible(true));
+        SwingUtilities.invokeLater(() -> {
+            MailServerGUI window = new MailServerGUI();
+            window.setVisible(true);
+            if (java.util.Arrays.asList(args).contains("--start")) window.startServer();
+        });
     }
 }

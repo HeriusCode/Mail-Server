@@ -1,0 +1,40 @@
+﻿STEP 2 internal SMTP/POP3 verification
+Verified: 2026-11-16 17:55:09 +07:00
+MailServer.AutomatedEndToEndTest: tests=1 failures=0 errors=0 skipped=0
+MailServer.FileRepositoryTest: tests=3 failures=0 errors=0 skipped=0
+MailServer.ProcessRestartTest: tests=1 failures=0 errors=0 skipped=0
+MailServer.ProtocolHardeningTest: tests=12 failures=0 errors=0 skipped=0
+MailServer.ProtocolIntegrationTest: tests=8 failures=0 errors=0 skipped=0
+MailServer.SecurityRegressionTest: tests=8 failures=0 errors=0 skipped=0
+MailServer.SwingCompatibilityTest: tests=1 failures=0 errors=0 skipped=0
+MailServer.SwingEndToEndTest: tests=1 failures=0 errors=0 skipped=0
+Final JUnit=35 PASS,0 FAIL,0 ERROR,0 SKIPPED
+Regression=22 PASS,0 FAIL
+Before fixes: 4 state/syntax failures +1 size-status failure, preserved in before-fixes.txt / before-size-fix.txt.
+Business changes: LocalSmtpServer.java, Pop3Server.java
+Real mail_storage unchanged; all writes use unique test fixtures.
+--- ProtocolHardeningTest ---
+PASS SMTP body >32000 UTF-8 bytes returns 552, resets transaction and creates no mail
+PASS SMTP DATA syntax; exactly one file/Sent per accepted transaction; repeated DATA without MAIL rejected
+PASS POP3 invalid USER/path traversal clears pending identity; wrong PASS cannot reuse previous USER
+PASS TCP SMTP->File Storage->TCP POP3 exact UTF-8/body/dot-stuffing, stable UIDL and RETR after restart; sanitized transcript in evidence/step2/protocol-transcript.txt
+PASS actual 30-second idle timeout on SMTP and POP3; sockets closed and listener still healthy
+PASS SMTP HELO/EHLO syntax, AUTH challenge, NOOP, unknown command, unauthenticated rejection, RSET/QUIT state and status codes
+PASS SMTP >128000 wire bytes ->552; disconnect during DATA creates no Inbox/Sent; listener recovers
+PASS SMTP malformed AUTH/three failures, connection isolation, envelope/MIME spoof, open relay and unsafe paths rejected
+PASS POP3 CAPA before/after login, invalid commands/numbers/path rejected, session owner cannot switch, credential file never listed
+PASS invalid CRLF/oversized command closes session; shutdown releases active sockets, workers, acceptors and listening ports
+PASS four concurrent authenticated SMTP transactions: exactly four Inbox files and four Sent files
+PASS POP3 invalid QUIT cannot commit deletion; RSET and normal QUIT preserve mailbox
+--- ProtocolIntegrationTest ---
+PASS POP3 state machine, wrong password, owner isolation, LIST octet counts, RETR and NOOP
+PASS SMTP rejects anonymous submission, envelope spoof, MIME From spoof and external open relay
+PASS outbound SMTP client reports missing config, real peer rejection and authentication failure
+PASS Jakarta Mail SMTP AUTH/DATA -> file Inbox/Sent -> actual POP3 client LIST/RETR UTF-8 and dot-stuffing
+PASS POP3 DELE rolls back on disconnect/RSET, commits only on QUIT, preserves bytes in private .trash
+PASS concurrent POP3 sessions cannot mutate the same maildrop
+PASS interactive ProtocolDemo executes actual SMTP/POP3, prints filename/content and never prints passwords
+PASS configured outbound SMTP DATA/250 acceptance, durable Sent receipt and retry deduplication using isolated test peer; Gmail NOT tested
+Internal listeners: loopback only, no TLS; 30s per-socket-read idle timeout; 4 workers +64 queued connections per protocol.
+No Internet/Gmail delivery or MySQL integration performed.
+Original server preserved: PID=19872; start=2026-11-16T17:18:54.0261540+07:00; listeners UDP5000/TCP2525/TCP1110 unchanged. It has not been restarted to load fixes.

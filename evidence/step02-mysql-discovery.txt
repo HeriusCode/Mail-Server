@@ -1,0 +1,53 @@
+STEP 02 - Windows MySQL automatic discovery
+Date: 2026-11-03 (Asia/Saigon)
+No passwords, tokens or credential-store contents are included in this evidence.
+
+[Service and installed tools]
+PASS Get-Service MySQL80: Running
+PASS Service executable from Windows service registry: C:\Program Files\MySQL\MySQL Server 8.0\bin\mysqld.exe
+PASS Service defaults file from Windows service registry: C:\ProgramData\MySQL\MySQL Server 8.0\my.ini
+PASS mysqld.exe --version: MySQL Community Server 8.0.29 Win64
+PASS mysql.exe --version: MySQL Community Client 8.0.29 Win64
+PASS TCP connection: 127.0.0.1:3306
+PASS Protocol 10 initial server greeting: live server version 8.0.29
+No authentication packet was sent during the initial greeting inspection.
+PASS my.ini inspection: port=3306; no additional include directives
+MySQL CLI is installed but is not on the current process PATH; use its existing absolute path.
+
+[Driver inventory]
+PASS Runtime driver exists: target/lib/mysql-connector-j-9.7.0.jar
+PASS Workspace Maven cache: out/m2/com/mysql/mysql-connector-j/9.7.0/mysql-connector-j-9.7.0.jar
+PASS User Maven cache: com/mysql/mysql-connector-j/8.0.33/mysql-connector-j-8.0.33.jar
+Existing project JDBC implementation, PreparedStatement usage and utf8mb4 schema remain in place.
+
+[Project configuration discovery]
+Only configuration template found: config/database.example.properties
+No .env, .env.local, config.properties, database.properties or other applicable local DB config found in project root/MailServer/MailClient/config.
+Ignored local configuration files were included in the search.
+No relevant MYSQL_*, MAIL_DB_*, MAIL_TEST_DB_*, MAIL_CONFIG or generic DB_* environment configuration found in Process/User/Machine scopes.
+No client authentication options found in the inspected native MySQL option files.
+No standard user .my.cnf or .mylogin.cnf configuration found.
+Workbench connections.xml inspected for connection metadata/inline credential availability only.
+Workbench saved connections: 2; both reference root; neither explicitly selects mail_server_db; neither contains an inline password.
+Windows Credential Manager, browser storage, Workbench vault and unrelated applications were not accessed.
+No password guessing, blank-password login attempts or authentication brute force performed.
+
+[Actual project checks]
+java -cp target/classes;target/lib/* MailServer.DatabaseTool check
+NOT RUN: missing MAIL_DB_URL / MAIL_DB_USER / MAIL_DB_PASSWORD or local config.
+Exit code: 2
+java -cp target/classes;target/lib/* MailServer.DatabaseTool inspect mail_storage
+No legacy storage directory; nothing to migrate.
+git check-ignore config/database.local.properties: ignored
+
+[What is and is not established]
+PASS: existing MySQL installation, running server version, loopback port, CLI and runtime driver.
+NO VALID AUTHENTICATION CONFIGURATION FOUND.
+SQL/JDBC authenticated connection: NOT RUN (missing credentials).
+mail_server_db existence: UNKNOWN; not inferred from Workbench metadata or filesystem data directories.
+Tables and account CREATE/SELECT/INSERT/UPDATE permissions: UNKNOWN until authenticated.
+MySQL integration tests and DB migration rerun: remain NOT RUN/SKIPPED, not PASS.
+No databases/tables/users/grants/passwords/services/server configuration modified.
+No active incomplete local DB config was created, so the working file-mode demo is preserved.
+The existing sample URL already matches the discovered localhost port and intended schema.
+Only missing input: credentials for an authorized project database account, supplied via the ignored local configuration or an approved existing config source.

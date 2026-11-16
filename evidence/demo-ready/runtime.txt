@@ -1,0 +1,20 @@
+﻿Source unchanged; no code fixes needed.
+User storage unchanged before opening interactive clients.
+MailServer.AutomatedEndToEndTest: tests=1, fail=0, errors=0, skipped=0
+MailServer.FileRepositoryTest: tests=3, fail=0, errors=0, skipped=0
+MailServer.GmailGuiStatusTest: tests=1, fail=0, errors=0, skipped=0
+MailServer.GmailSmtpIntegrationTest: tests=14, fail=0, errors=0, skipped=0
+MailServer.ProcessRestartTest: tests=1, fail=0, errors=0, skipped=0
+MailServer.ProtocolHardeningTest: tests=12, fail=0, errors=0, skipped=0
+MailServer.ProtocolIntegrationTest: tests=8, fail=0, errors=0, skipped=0
+MailServer.SecurityRegressionTest: tests=8, fail=0, errors=0, skipped=0
+MailServer.SwingCompatibilityTest: tests=1, fail=0, errors=0, skipped=0
+MailServer.SwingEndToEndTest: tests=1, fail=0, errors=0, skipped=0
+PASS ServerGUI direct entry point: MailFlow Mail Server; no --start, existing listeners untouched
+PASS Client window PID=28564; title=MailFlow Client
+PASS Client window PID=27580; title=MailFlow Client
+Existing Server PID=19872 retained; no restart performed
+PASS running Server: UDP5000 matching-ID PONG
+PASS running Server: TCP2525 220 localhost MailFlow SMTP ready
+PASS running Server: TCP1110 +OK MailFlow POP3 ready
+No user accounts were created or email sent by GUI/readiness probes.

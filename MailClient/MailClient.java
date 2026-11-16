@@ -10,6 +10,14 @@ public class MailClient {
     private static final int SERVER_PORT = 5000;
 
     public static void main(String[] args) {
+        if (!java.util.Arrays.asList(args).contains("--console")) {
+            MailClientGUI.main(args);
+            return;
+        }
+        runConsole();
+    }
+
+    private static void runConsole() {
         try (Scanner scanner = new Scanner(System.in, StandardCharsets.UTF_8)) {
             System.out.print("Nhập IP UDP MailServer (mặc định " + SERVER_HOST + "): ");
             String hostInput = scanner.nextLine().trim();
@@ -51,7 +59,7 @@ public class MailClient {
                 case "1": register(scanner, client); break;
                 case "2": login(scanner, client); break;
                 case "3": sendMail(scanner, client); break;
-                case "4": running = false; break;
+                case "4": client.logout(); running = false; break;
                 default: System.out.println("Lựa chọn không hợp lệ.");
             }
         }
