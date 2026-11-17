@@ -30,6 +30,21 @@ class SwingCompatibilityTest {
         }
         fail("GUI did not reach expected state for " + label);
     }
+    private void waitForInboxSize(MailClientGUI gui, int expectedSize) throws Exception {
+        long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        AtomicBoolean done = new AtomicBoolean();
+        while (System.nanoTime() < deadline) {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    done.set(field(gui, "listFiles", JList.class).getModel().getSize()
+                            == expectedSize);
+                } catch (Exception e) { throw new RuntimeException(e); }
+            });
+            if (done.get()) return;
+            Thread.sleep(20);
+        }
+        fail("Inbox did not automatically reach " + expectedSize + " message(s)");
+    }
     private void login(MailClientGUI gui, int port, String owner) throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             try {
@@ -46,7 +61,7 @@ class SwingCompatibilityTest {
         });
         click(gui, "btnLogin"); waitFor(gui, "lblSessionUser", owner);
     }
-    @Test void twoSwingClientsSendRefreshReadAndLogout() throws Exception {
+    @Test void twoSwingClientsReceiveAutomaticallyReadAndLogout() throws Exception {
         org.junit.jupiter.api.Assumptions.assumeFalse(GraphicsEnvironment.isHeadless(), "Swing display unavailable");
         Path root = Files.createTempDirectory(Path.of("target"), "swing-");
         MailStorageService storage = new MailStorageService(root);
@@ -69,7 +84,9 @@ class SwingCompatibilityTest {
                 } catch (Exception e) { throw new RuntimeException(e); }
             });
             click(clients[0], "btnSend"); waitFor(clients[0], "lblStatus", "Đã gửi thư");
-            click(clients[1], "btnRefresh"); waitFor(clients[1], "lblStatus", "Đã làm mới hộp thư");
+            waitForInboxSize(clients[1], 1);
+            waitFor(clients[1], "lblStatus", "thư mới");
+            System.out.println("PASS recipient receives new mail automatically without Refresh");
             SwingUtilities.invokeAndWait(() -> {
                 try { field(clients[1], "listFiles", JList.class).setSelectedIndex(0); }
                 catch (Exception e) { throw new RuntimeException(e); }
@@ -80,7 +97,7 @@ class SwingCompatibilityTest {
                 try { content.set(field(clients[1], "txtMailContent", JTextArea.class).getText().contains("Swing test body")); }
                 catch (Exception e) { throw new RuntimeException(e); }
             });
-            assertTrue(content.get()); System.out.println("PASS two actual Swing clients send/refresh/read through UDP session adapter");
+            assertTrue(content.get()); System.out.println("PASS two actual Swing clients send/auto-receive/read through UDP session adapter");
             click(clients[0], "btnLogoutNav"); waitFor(clients[0], "lblSessionUser", "Chưa đăng nhập");
             System.out.println("PASS Swing logout clears current account");
         } finally {

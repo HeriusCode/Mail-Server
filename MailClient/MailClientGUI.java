@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import javax.swing.BorderFactory;
@@ -47,6 +48,7 @@ import javax.swing.JToggleButton;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
+import javax.swing.Timer;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 
@@ -71,6 +73,7 @@ public class MailClientGUI extends JFrame {
     private static final String SCREEN_MAIL = "MAIL";
     private static final String AUTH_LOGIN = "AUTH_LOGIN";
     private static final String AUTH_REGISTER = "AUTH_REGISTER";
+    private static final int AUTO_REFRESH_INTERVAL_MILLIS = 1_500;
 
     private final JTextField txtServerHost = new JTextField(SERVER_HOST, 11);
     private final JTextField txtServerPort = new JTextField(String.valueOf(SERVER_PORT), 5);
@@ -127,14 +130,20 @@ public class MailClientGUI extends JFrame {
         thread.setDaemon(true);
         return thread;
     });
+    private final AtomicBoolean autoRefreshInFlight = new AtomicBoolean();
+    private final Timer inboxAutoRefreshTimer = new Timer(
+            AUTO_REFRESH_INTERVAL_MILLIS, event -> autoRefreshInbox());
 
     private volatile UdpMailClient udpClient;
     private volatile String currentUser = "";
+    private volatile String lastInboxResponse = "";
     private long uiEpoch;
     private boolean showingRegister;
+    private boolean suppressInboxSelectionEvent;
 
     public MailClientGUI() {
         super("MailFlow Client");
+        inboxAutoRefreshTimer.setInitialDelay(1_000);
         buildInterface();
     }
 
@@ -704,13 +713,16 @@ public class MailClientGUI extends JFrame {
         });
         btnLogoutNav.addActionListener(event -> logout());
         listFiles.addListSelectionListener(event -> {
-            if (!event.getValueIsAdjusting()) showSelectedMail(listFiles.getSelectedValue());
+            if (!event.getValueIsAdjusting() && !suppressInboxSelectionEvent) {
+                showSelectedMail(listFiles.getSelectedValue());
+            }
         });
         listSent.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) showSelectedSentMail(listSent.getSelectedValue());
         });
         addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(WindowEvent event) {
+                inboxAutoRefreshTimer.stop();
                 closeConnection();
                 networkWorker.shutdownNow();
                 dispose();
@@ -851,6 +863,9 @@ public class MailClientGUI extends JFrame {
             }
             updateMailList(response);
             currentUser = username;
+            lastInboxResponse = response;
+            autoRefreshInFlight.set(false);
+            inboxAutoRefreshTimer.restart();
             resetPasswordField();
             lblSessionUser.setText(username);
             setStatus("Đã tải " + mailListModel.size() + " thư của " + username, false);
@@ -870,10 +885,83 @@ public class MailClientGUI extends JFrame {
         if (owner.isEmpty()) return;
         requestAsync("INBOX " + owner, response -> {
             if (response.startsWith("LOGIN_SUCCESS|")) {
+                lastInboxResponse = response;
                 updateMailList(response);
                 setStatus("Đã làm mới hộp thư", false);
             } else setStatus("Không thể tải hộp thư: " + response, true);
         });
+    }
+
+    /**
+     * Kiểm tra hộp thư nền qua UDP. Tác vụ này không khóa các nút và chỉ vẽ lại
+     * danh sách khi dữ liệu thực sự thay đổi, nên người nhận không cần bấm Làm mới.
+     */
+    private void autoRefreshInbox() {
+        String owner = currentUser;
+        UdpMailClient client = udpClient;
+        long epoch = uiEpoch;
+        if (owner.isEmpty() || client == null || client.isClosed()
+                || !client.isAuthenticated()
+                || !autoRefreshInFlight.compareAndSet(false, true)) {
+            return;
+        }
+
+        networkWorker.submit(() -> {
+            try {
+                String response = client.sendRequest("INBOX " + owner);
+                SwingUtilities.invokeLater(() -> {
+                    try {
+                        if (epoch != uiEpoch || client != udpClient
+                                || !owner.equals(currentUser)) {
+                            return;
+                        }
+                        if ("AUTH_REQUIRED".equals(response)) {
+                            inboxAutoRefreshTimer.stop();
+                            logout();
+                            setStatus("Phiên đã hết hạn. Vui lòng đăng nhập lại.", true);
+                            return;
+                        }
+                        if (!response.startsWith("LOGIN_SUCCESS|")
+                                || response.equals(lastInboxResponse)) {
+                            return;
+                        }
+
+                        int previousCount = mailListModel.size();
+                        MailItem selected = listFiles.getSelectedValue();
+                        String selectedFile = selected == null ? null : selected.fileName;
+                        lastInboxResponse = response;
+                        suppressInboxSelectionEvent = true;
+                        try {
+                            updateMailList(response);
+                            restoreInboxSelection(selectedFile);
+                        } finally {
+                            suppressInboxSelectionEvent = false;
+                        }
+
+                        int receivedCount = Math.max(0, mailListModel.size() - previousCount);
+                        if (receivedCount > 0) {
+                            setStatus("Bạn có " + receivedCount + " thư mới", false);
+                            java.awt.Toolkit.getDefaultToolkit().beep();
+                        }
+                    } finally {
+                        autoRefreshInFlight.set(false);
+                    }
+                });
+            } catch (IOException ignored) {
+                // Lỗi tạm thời của tác vụ nền không làm gián đoạn thao tác trên UI.
+                autoRefreshInFlight.set(false);
+            }
+        });
+    }
+
+    private void restoreInboxSelection(String fileName) {
+        if (fileName == null) return;
+        for (int index = 0; index < mailListModel.size(); index++) {
+            if (fileName.equals(mailListModel.get(index).fileName)) {
+                listFiles.setSelectedIndex(index);
+                return;
+            }
+        }
     }
 
     private String normalizeEmail(String value) {
@@ -1106,6 +1194,9 @@ public class MailClientGUI extends JFrame {
     }
 
     private void logout() {
+        inboxAutoRefreshTimer.stop();
+        autoRefreshInFlight.set(false);
+        lastInboxResponse = "";
         uiEpoch++;
         UdpMailClient client = udpClient;
         udpClient = null;
@@ -1147,6 +1238,9 @@ public class MailClientGUI extends JFrame {
     }
 
     private void closeConnection() {
+        inboxAutoRefreshTimer.stop();
+        autoRefreshInFlight.set(false);
+        lastInboxResponse = "";
         UdpMailClient current = udpClient;
         udpClient = null;
         if (current != null) current.close();
