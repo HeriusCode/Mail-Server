@@ -44,7 +44,7 @@ public class MailServerGUI extends JFrame {
     private static final Color BORDER = new Color(226, 232, 240);
     private static final Color SUCCESS = new Color(5, 150, 105);
     private static final Color ERROR = new Color(220, 38, 38);
-    private static final String DEFAULT_BIND_HOST = "127.0.0.1";
+    private static final String DEFAULT_BIND_HOST = "0.0.0.0";
     private static final int DEFAULT_PORT = 5000;
 
     private final JTextField txtBindHost = new JTextField(DEFAULT_BIND_HOST, 11);

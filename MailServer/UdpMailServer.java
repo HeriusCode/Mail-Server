@@ -92,6 +92,10 @@ public class UdpMailServer implements Closeable {
         }
         String request = envelope.substring(separator + 1);
         listener.onRequest(client);
+        if (request.equals("DISCOVER_MAILFLOW")) {
+            send(client, requestId + "|MAILFLOW_SERVER|" + socket.getLocalPort());
+            return;
+        }
         // Never cache authenticated responses: every replay must recheck expiry/revocation.
         if (!request.startsWith("REGISTER ")) {
             send(client, requestId + "|" + safeHandle(request, requestId));
